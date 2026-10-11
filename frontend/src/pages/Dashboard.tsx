@@ -86,6 +86,7 @@ const INDEX_TRANSLATION_KEYS: Record<string, string> = {
   '000001': 'sseComposite',
   '399001': 'szseComponent',
   '399006': 'chinext',
+  '000688': 'star50',
   HSI: 'hangSeng',
   IXIC: 'nasdaq',
   DJI: 'dowJones',
@@ -464,23 +465,23 @@ export default function DashboardPage() {
       </div>
 
       {/* 指数走势 pills */}
-      <div className="mb-3 grid grid-cols-2 gap-2.5 md:grid-cols-3 lg:grid-cols-5">
-        {indices.slice(0, 5).map((ix) => (
-          <div key={`${ix.market}:${ix.symbol}`} className="card-subtle relative p-2.5">
+      <div className="mb-3 grid grid-cols-2 gap-1.5 md:grid-cols-4 lg:grid-cols-7">
+        {indices.map((ix) => (
+          <div key={`${ix.market}:${ix.symbol}`} className="card-subtle relative p-1.5 md:p-2">
             <div className="flex items-start justify-between gap-1">
               <div className="min-w-0">
-                <div className="truncate text-[11px] text-muted-foreground">{indexLabel(ix.symbol, ix.name)}</div>
-                <div className="font-mono text-[15px] text-foreground">
+                <div className="truncate text-[10px] md:text-[11px] text-muted-foreground">{indexLabel(ix.symbol, ix.name)}</div>
+                <div className="font-mono text-[13px] md:text-[14px] leading-tight text-foreground">
                   {ix.current_price != null ? ix.current_price.toFixed(2) : '--'}
                 </div>
               </div>
-              <span className={`shrink-0 rounded px-1 py-0.5 font-mono text-[10px] ${pctChipCls(ix.change_pct)}`}>
+              <span className={`shrink-0 rounded px-1 py-0.5 font-mono text-[9px] md:text-[10px] ${pctChipCls(ix.change_pct)}`}>
                 {ix.change_pct != null ? pct(ix.change_pct) : '--'}
               </span>
             </div>
             {ix.spark && ix.spark.length >= 2 && (
-              <div className="mt-1.5">
-                <Sparkline data={ix.spark} height={26} className={moveColor(ix.change_pct)} />
+              <div className="mt-1">
+                <Sparkline data={ix.spark} height={20} className={moveColor(ix.change_pct)} />
               </div>
             )}
           </div>

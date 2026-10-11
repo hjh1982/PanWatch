@@ -24,6 +24,7 @@ MARKET_INDICES = [
     {"symbol": "000001", "name": "上证指数", "market": "CN", "tencent_symbol": "sh000001", "response_symbol": "000001"},
     {"symbol": "399001", "name": "深证成指", "market": "CN", "tencent_symbol": "sz399001", "response_symbol": "399001"},
     {"symbol": "399006", "name": "创业板指", "market": "CN", "tencent_symbol": "sz399006", "response_symbol": "399006"},
+    {"symbol": "000688", "name": "科创50", "market": "CN", "tencent_symbol": "sh000688", "response_symbol": "000688"},
     # 港股指数
     {"symbol": "HSI", "name": "恒生指数", "market": "HK", "tencent_symbol": "hkHSI", "response_symbol": "HSI"},
     # 美股指数 (腾讯返回的 symbol 带点号前缀: .IXIC, .DJI)
