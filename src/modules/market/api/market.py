@@ -2,6 +2,7 @@
 import asyncio
 import logging
 import time
+import httpx
 from fastapi import APIRouter
 
 from src.platform.marketdata.collectors.kline_collector import get_index_klines
@@ -132,4 +133,148 @@ async def get_market_indices():
             })
 
     _INDICES_CACHE["indices"] = (now, result)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# 大宗商品 / 宏观行情（与指数同样式展示）
+# 数据源统一为新浪财经：外盘期货 hf_、外盘指数（美元指数 DINIW）、国内期货主连 nf_。
+# ---------------------------------------------------------------------------
+COMMODITIES = [
+    {"symbol": "USDX", "name": "美元指数", "source": "sina_global", "quote_symbol": "DINIW"},
+    {"symbol": "CNH", "name": "离岸人民币", "source": "sina_global", "quote_symbol": "fx_susdcnh"},
+    {"symbol": "OIL", "name": "布伦特原油", "source": "sina_hf", "quote_symbol": "hf_OIL"},
+    {"symbol": "AHD", "name": "伦铝", "source": "sina_hf", "quote_symbol": "hf_AHD"},
+    {"symbol": "AL0", "name": "AL0期货", "source": "sina_nf", "quote_symbol": "nf_AL0"},
+    {"symbol": "XAU", "name": "伦金", "source": "sina_hf", "quote_symbol": "hf_XAU"},
+    {"symbol": "CAD", "name": "伦铜", "source": "sina_hf", "quote_symbol": "hf_CAD"},
+]
+_COMM_CACHE: dict[str, tuple[float, list[dict]]] = {}
+_COMM_CACHE_TTL_S = 60
+
+_SINA_HEADERS = {
+    "Referer": "https://finance.sina.com.cn/",
+    "User-Agent": "Mozilla/5.0",
+}
+
+
+def _parse_sina_hf(text: str) -> dict[str, dict]:
+    """解析新浪外盘期货 hf_（逗号格式；parts[0] 现价，parts[7] 昨结；涨跌由二者计算）。"""
+    out: dict[str, dict] = {}
+    for line in text.strip().splitlines():
+        if '="' not in line:
+            continue
+        key, value = line.split('="', 1)
+        code = key.replace("var hq_str_", "").strip()
+        parts = value.rstrip('";').split(",")
+        if len(parts) < 14:
+            continue
+        try:
+            last = float(parts[0])
+            prev_settle = float(parts[7])
+        except ValueError:
+            continue
+        change = last - prev_settle
+        change_pct = (change / prev_settle * 100) if prev_settle else None
+        out[code] = {
+            "current_price": last,
+            "change_amount": change,
+            "change_pct": change_pct,
+        }
+    return out
+
+
+def _parse_sina_global(text: str) -> dict[str, dict]:
+    """解析新浪外盘指数（如美元指数 DINIW）：parts[1] 现价，parts[3] 昨收。"""
+    out: dict[str, dict] = {}
+    for line in text.strip().splitlines():
+        if '="' not in line:
+            continue
+        key, value = line.split('="', 1)
+        code = key.replace("var hq_str_", "").strip()
+        parts = value.rstrip('";').split(",")
+        if len(parts) < 10:
+            continue
+        try:
+            last = float(parts[1])
+            prev_close = float(parts[3])
+        except ValueError:
+            continue
+        change = last - prev_close
+        change_pct = (change / prev_close * 100) if prev_close else None
+        out[code] = {
+            "current_price": last,
+            "change_amount": change,
+            "change_pct": change_pct,
+        }
+    return out
+
+
+def _parse_sina_nf(text: str) -> dict[str, dict]:
+    """解析新浪国内期货主连（parts[8] 最新价，parts[10] 昨结算）。"""
+    out: dict[str, dict] = {}
+    for line in text.strip().splitlines():
+        if '="' not in line:
+            continue
+        key, value = line.split('="', 1)
+        code = key.replace("var hq_str_", "").strip()
+        parts = value.rstrip('";').split(",")
+        if len(parts) < 11:
+            continue
+        try:
+            last = float(parts[8])
+            prev_settle = float(parts[10])
+        except ValueError:
+            continue
+        change = last - prev_settle
+        change_pct = (change / prev_settle * 100) if prev_settle else None
+        out[code] = {
+            "current_price": last,
+            "change_amount": change,
+            "change_pct": change_pct,
+        }
+    return out
+
+
+def _build_commodities() -> list[dict]:
+    groups: dict[str, list[str]] = {}
+    for item in COMMODITIES:
+        groups.setdefault(item["source"], []).append(item["quote_symbol"])
+
+    parsers = {
+        "sina_hf": _parse_sina_hf,
+        "sina_global": _parse_sina_global,
+        "sina_nf": _parse_sina_nf,
+    }
+    fetched: dict[str, dict[str, dict]] = {}
+    for source, symbols in groups.items():
+        try:
+            url = "https://hq.sinajs.cn/list=" + ",".join(symbols)
+            resp = httpx.get(url, timeout=10, headers=_SINA_HEADERS)
+            fetched[source] = parsers[source](resp.content.decode("gbk", "ignore"))
+        except Exception as e:  # 单个来源失败不影响其余品种
+            logger.warning(f"获取商品行情失败 {source}: {e}")
+
+    result = []
+    for item in COMMODITIES:
+        quote = fetched.get(item["source"], {}).get(item["quote_symbol"])
+        result.append({
+            "symbol": item["symbol"],
+            "name": item["name"],
+            "current_price": quote["current_price"] if quote else None,
+            "change_amount": round(quote["change_amount"], 4) if quote else None,
+            "change_pct": round(quote["change_pct"], 2) if quote and quote["change_pct"] is not None else None,
+        })
+    return result
+
+
+@router.get("/commodities")
+async def get_commodities():
+    """获取大宗商品/宏观行情（公共数据，无需认证）。"""
+    now = time.time()
+    cached = _COMM_CACHE.get("commodities")
+    if cached and now - cached[0] < _COMM_CACHE_TTL_S:
+        return cached[1]
+    result = await asyncio.to_thread(_build_commodities)
+    _COMM_CACHE["commodities"] = (now, result)
     return result

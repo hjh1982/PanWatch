@@ -27,6 +27,14 @@ export interface DashboardMarketIndex {
   spark?: number[]
 }
 
+export interface DashboardCommodity {
+  symbol: string
+  name: string
+  current_price: number | null
+  change_amount: number | null
+  change_pct: number | null
+}
+
 export interface DashboardMarketStatus {
   code: string
   name: string
@@ -226,6 +234,8 @@ export interface DashboardOverviewResponse {
 
 export const dashboardApi = {
   indices: () => fetchAPI<DashboardMarketIndex[]>('/market/indices'),
+
+  commodities: () => fetchAPI<DashboardCommodity[]>('/market/commodities'),
 
   marketStatus: () => fetchAPI<DashboardMarketStatus[]>('/stocks/markets/status'),
 

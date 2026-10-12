@@ -8,6 +8,7 @@ import {
   recommendationsApi,
   homeApi,
   type DashboardMarketIndex,
+  type DashboardCommodity,
   type DashboardMarketStatus,
   type DashboardMonitorStock,
   type DashboardOverviewResponse,
@@ -51,6 +52,13 @@ function pctChipCls(v?: number | null): string {
   if (v > 0) return 'bg-market-up/10 text-market-up'
   if (v < 0) return 'bg-market-down/10 text-market-down'
   return 'bg-accent text-muted-foreground'
+}
+/** 商品价格格式化：沪铝主连为整数，离岸人民币四位小数，其余保留两位小数。 */
+function formatCommodityPrice(cm: DashboardCommodity): string {
+  if (cm.current_price == null) return '--'
+  if (cm.symbol === 'AL0') return cm.current_price.toFixed(0)
+  if (cm.symbol === 'CNH') return cm.current_price.toFixed(4)
+  return cm.current_price.toFixed(2)
 }
 /** 金额展示:+¥2,175 风格(千分位 + 正负号),脱敏场景外的常规展示用。 */
 function fmtMoney(v?: number | null): string {
@@ -103,6 +111,7 @@ export default function DashboardPage() {
   const loadId = useRef(0)
   const benchLoadId = useRef(0)
   const [indices, setIndices] = useState<DashboardMarketIndex[]>([])
+  const [commodities, setCommodities] = useState<DashboardCommodity[]>([])
   const [monitorSnapshot, setMonitorSnapshot] = useState<DashboardMonitorStock[]>([])
   const [overview, setOverview] = useState<DashboardOverviewResponse | null>(null)
   const [diag, setDiag] = useState<PortfolioDiagnostics | null>(null)
@@ -160,6 +169,7 @@ export default function DashboardPage() {
       request.then((value) => { if (current()) apply(value) }).catch(() => {})
 
     void publish(dashboardApi.indices(), setIndices)
+    void publish(dashboardApi.commodities(), setCommodities)
     loadBench()
 
     // DB 简报无需等待行情；先展示返回的报告，再择新回填。
@@ -484,6 +494,25 @@ export default function DashboardPage() {
                 <Sparkline data={ix.spark} height={20} className={moveColor(ix.change_pct)} />
               </div>
             )}
+          </div>
+        ))}
+      </div>
+
+      {/* 大宗商品 / 宏观行情 */}
+      <div className="mb-3 grid grid-cols-2 gap-1.5 md:grid-cols-4 lg:grid-cols-7">
+        {commodities.map((cm) => (
+          <div key={cm.symbol} className="card-subtle relative p-1.5 md:p-2">
+            <div className="flex items-start justify-between gap-1">
+              <div className="min-w-0">
+                <div className="truncate text-[10px] md:text-[11px] text-muted-foreground">{cm.name}</div>
+                <div className="font-mono text-[13px] md:text-[14px] leading-tight text-foreground">
+                  {cm.current_price != null ? formatCommodityPrice(cm) : '--'}
+                </div>
+              </div>
+              <span className={`shrink-0 rounded px-1 py-0.5 font-mono text-[9px] md:text-[10px] ${pctChipCls(cm.change_pct)}`}>
+                {cm.change_pct != null ? pct(cm.change_pct) : '--'}
+              </span>
+            </div>
           </div>
         ))}
       </div>
