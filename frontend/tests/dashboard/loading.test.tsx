@@ -106,15 +106,15 @@ describe('dashboard progressive loading', () => {
     vi.mocked(homeApi.todos).mockResolvedValue({ todos: [] })
     vi.mocked(dashboardApi.marketStatus).mockResolvedValue([])
     const { container } = render(<MemoryRouter><DashboardPage /></MemoryRouter>)
-    const refresh = container.querySelector('button')!
-    await waitFor(() => expect(refresh.disabled).toBe(false))
+    const autoSwitch = screen.getByRole('switch')
     await waitFor(() => expect(dashboardApi.curate).toHaveBeenCalledTimes(1))
-    await userEvent.click(refresh)
+    // 打开定时刷新开关：开启时立即触发一次加载
+    await userEvent.click(autoSwitch)
     await waitFor(() => expect(screen.getAllByText(/\+9.00%/).length).toBeGreaterThan(0))
     await act(async () => { oldBenchmark.resolve({ ...benchmark, excess_return: -9 }) })
     expect(screen.queryByText(/-9.00%/)).toBeNull()
     expect(screen.getAllByText(/\+9.00%/).length).toBeGreaterThan(0)
-    await waitFor(() => expect(refresh.disabled).toBe(false))
-    expect(dashboardApi.curate).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(dashboardApi.curate).toHaveBeenCalledTimes(1))
+    void container
   })
 })

@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
-import { RefreshCw, AlertTriangle, Sparkles, Activity, ShieldAlert, Newspaper, Share2 } from 'lucide-react'
+import { AlertTriangle, Sparkles, Activity, ShieldAlert, Newspaper, Share2 } from 'lucide-react'
 import {
   dashboardApi,
   portfolioApi,
@@ -24,7 +24,7 @@ import {
   type PortfolioAiReview,
   type DashboardBrief,
 } from '@panwatch/api'
-import { Button } from '@panwatch/base-ui/components/ui/button'
+import { Switch } from '@panwatch/base-ui/components/ui/switch'
 import { useTranslation } from 'react-i18next'
 import { Onboarding } from '@panwatch/biz-ui/components/onboarding'
 import DiscoveryPanel from '@/components/DiscoveryPanel'
@@ -112,6 +112,7 @@ export default function DashboardPage() {
   const benchLoadId = useRef(0)
   const [indices, setIndices] = useState<DashboardMarketIndex[]>([])
   const [commodities, setCommodities] = useState<DashboardCommodity[]>([])
+  const [autoRefresh, setAutoRefresh] = useState(false)
   const [monitorSnapshot, setMonitorSnapshot] = useState<DashboardMonitorStock[]>([])
   const [overview, setOverview] = useState<DashboardOverviewResponse | null>(null)
   const [diag, setDiag] = useState<PortfolioDiagnostics | null>(null)
@@ -222,6 +223,19 @@ export default function DashboardPage() {
       benchLoadId.current += 1
     }
   }, [load])
+
+  // 定时刷新开关：开启时立即刷新一次，之后每 30 秒自动重新加载
+  const loadingRef = useRef(false)
+  loadingRef.current = loading
+  useEffect(() => {
+    if (!autoRefresh) return
+    const trigger = () => {
+      if (!loadingRef.current) void load()
+    }
+    trigger()
+    const timer = setInterval(trigger, 30_000)
+    return () => clearInterval(timer)
+  }, [autoRefresh, load])
 
   const handleOnboardingComplete = () => {
     localStorage.setItem('panwatch_onboarding_completed', 'true')
@@ -413,9 +427,10 @@ export default function DashboardPage() {
       <div className="mb-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
         <div className="flex items-center gap-2">
           <h1 className="text-[20px] font-bold tracking-tight text-foreground md:text-[22px]">{dashboardT('dashboard.title')}</h1>
-          <Button onClick={load} disabled={loading} size="sm" variant="ghost" className="h-7 px-2">
-            <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
-          </Button>
+          <label className="ml-1 inline-flex cursor-pointer select-none items-center gap-1.5" title={dashboardT('dashboard.autoRefresh')}>
+            <Switch checked={autoRefresh} onCheckedChange={setAutoRefresh} />
+            <span className="text-[11px] text-muted-foreground">{dashboardT('dashboard.autoRefresh')}</span>
+          </label>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-[11px]">
           {refreshedAt && <span className="text-muted-foreground">{formatHeaderTime(refreshedAt, dashboardT)}</span>}
