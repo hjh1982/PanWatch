@@ -27,7 +27,6 @@ import {
 import { Switch } from '@panwatch/base-ui/components/ui/switch'
 import { useTranslation } from 'react-i18next'
 import { Onboarding } from '@panwatch/biz-ui/components/onboarding'
-import DiscoveryPanel from '@/components/DiscoveryPanel'
 import Sparkline from '@/components/Sparkline'
 import BenchChart from '@/components/BenchChart'
 import { formatNumber } from '@/i18n/format'
@@ -842,8 +841,6 @@ export default function DashboardPage() {
           </div>
         )}
       </div>
-
-      <DiscoveryPanel monitorStocks={monitorSnapshot} portfolioSummary={portfolioSummary} onOpenStock={openStock} />
 
       <Suspense fallback={null}>
         {modal.open && (
