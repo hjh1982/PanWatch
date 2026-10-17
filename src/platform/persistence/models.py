@@ -71,6 +71,9 @@ class Account(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String, nullable=False)  # 账户名称，如 "招商证券"、"华泰证券"
     available_funds = Column(Float, default=0)  # 可用资金
+    # 券商佣金：费率（如 0.00025=万2.5），双向收取；最低佣金（0 表示无最低）
+    commission_rate = Column(Float, default=0.00025)
+    commission_min = Column(Float, default=5.0)
     enabled = Column(Boolean, default=True)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
@@ -130,6 +133,36 @@ class Position(Base):
 
     account = relationship("Account", back_populates="positions")
     stock = relationship("Stock", back_populates="positions")
+
+
+class AccountTransaction(Base):
+    """账户买卖明细流水（每笔买入/卖出各一条，持仓为其汇总结果）"""
+
+    __tablename__ = "account_transactions"
+    __table_args__ = (
+        Index("ix_account_tx_account", "account_id", "traded_at"),
+        Index("ix_account_tx_stock", "stock_id"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    account_id = Column(
+        Integer, ForeignKey("accounts.id", ondelete="CASCADE"), nullable=False
+    )
+    stock_id = Column(
+        Integer, ForeignKey("stocks.id", ondelete="CASCADE"), nullable=False
+    )
+    side = Column(String, nullable=False)  # buy: 买入, sell: 卖出
+    quantity = Column(Integer, nullable=False)  # 成交数量
+    price = Column(Float, nullable=False)  # 成交价格
+    amount = Column(Float, nullable=False)  # 成交金额（价格×数量）
+    fee = Column(Float, nullable=False, default=0.0)  # 手续费
+    realized_pnl = Column(Float, nullable=True)  # 卖出时的已实现盈亏
+    traded_at = Column(DateTime, server_default=func.now())  # 交易时间
+    note = Column(String, default="")  # 备注
+    created_at = Column(DateTime, server_default=func.now())
+
+    account = relationship("Account")
+    stock = relationship("Stock")
 
 
 class StockAgent(Base):

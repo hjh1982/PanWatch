@@ -1,7 +1,7 @@
 import { useConfirm } from '@panwatch/base-ui/components/ui/confirm-dialog'
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Plus, Trash2, Pencil, Search, X, TrendingUp, Bot, Play, RefreshCw, Wallet, PiggyBank, ArrowUpRight, ArrowDownRight, Building2, ChevronDown, ChevronRight, Cpu, Bell, Clock, Newspaper, ExternalLink, BarChart3, Brain } from 'lucide-react'
+import { Plus, Trash2, Pencil, Search, X, TrendingUp, Bot, Play, RefreshCw, Wallet, PiggyBank, ArrowUpRight, ArrowDownRight, Building2, ChevronDown, ChevronRight, Cpu, Bell, Clock, Newspaper, ExternalLink, BarChart3, Brain, ScrollText } from 'lucide-react'
 import { fetchAPI, stocksApi, type AIService, type NotifyChannel } from '@panwatch/api'
 import { klinesApi } from '@panwatch/api/klines'
 import { useLocalStorage, formatDateTime } from '@/lib/utils'
@@ -32,6 +32,7 @@ import { browserTimezone } from '@panwatch/base-ui'
 import { applyMarketStatuses, mergePortfolioQuotes, toQuoteMap, type Position, type PortfolioSummary, type QuoteResponse, type DisplayQuote } from '@/lib/portfolio-quotes'
 import { MarketCalendarStatus, type MarketStatus } from '@/components/MarketCalendarStatus'
 import { marketSignTextClass } from '@/lib/market-colors'
+import { calcFeePreview } from '@/lib/trade-fees'
 import { parseAssistantPortfolioTarget } from '@/lib/assistant-navigation'
 
 interface AgentResult {
@@ -66,6 +67,8 @@ interface Account {
   name: string
   available_funds: number
   enabled: boolean
+  commission_rate: number
+  commission_min: number
 }
 
 
@@ -105,6 +108,8 @@ interface StockForm {
 interface AccountForm {
   name: string
   available_funds: string
+  commission_rate_wan: string  // 佣金费率，单位：万分之（2.5 = 万2.5）
+  commission_min: string  // 最低佣金，0 表示无最低
 }
 
 interface PositionForm {
@@ -114,10 +119,40 @@ interface PositionForm {
   quantity: string
   invested_amount: string
   trading_style: string
+  // 动作：buy 买入 / sell 卖出 / adjust 仅修正
+  action: 'buy' | 'sell' | 'adjust'
+  trade_price: string
+  trade_quantity: string
+  fee: string
+  traded_at: string
+  note: string
   // 搜索选中的股票信息（新增持仓时用）
   stock_symbol: string
   stock_name: string
   stock_market: string
+}
+
+interface AccountTxn {
+  id: number
+  account_id: number
+  stock_id: number
+  side: string
+  quantity: number
+  price: number
+  amount: number
+  fee: number
+  realized_pnl: number | null
+  traded_at: string | null
+  note: string
+  stock_symbol: string | null
+  stock_name: string | null
+}
+
+interface TxnSummary {
+  buy_amount: number
+  sell_amount: number
+  total_fee: number
+  realized_pnl: number
 }
 
 // 建议池中的建议（包含来源和时间信息）
@@ -160,7 +195,7 @@ interface PriceAlertRuleSummary {
 }
 
 const emptyStockForm: StockForm = { symbol: '', name: '', market: 'CN' }
-const emptyAccountForm: AccountForm = { name: '', available_funds: '0' }
+const emptyAccountForm: AccountForm = { name: '', available_funds: '0', commission_rate_wan: '2.5', commission_min: '5' }
 
 const buildQuoteItemsFrom = (stockList: Stock[], portfolio: PortfolioSummary | null): QuoteRequestItem[] => {
   const items: QuoteRequestItem[] = []
@@ -277,8 +312,14 @@ export default function StocksPage() {
 
   // Position form
   const [positionDialogOpen, setPositionDialogOpen] = useState(false)
-  const [positionForm, setPositionForm] = useState<PositionForm>({ account_id: 0, stock_id: 0, cost_price: '', quantity: '', invested_amount: '', trading_style: '', stock_symbol: '', stock_name: '', stock_market: 'CN' })
+  const [positionForm, setPositionForm] = useState<PositionForm>({ account_id: 0, stock_id: 0, cost_price: '', quantity: '', invested_amount: '', trading_style: '', action: 'buy', trade_price: '', trade_quantity: '', fee: '', traded_at: '', note: '', stock_symbol: '', stock_name: '', stock_market: 'CN' })
   const [editPositionId, setEditPositionId] = useState<number | null>(null)
+
+  // 账户交易明细
+  const [txnDialogAccount, setTxnDialogAccount] = useState<{ id: number; name: string } | null>(null)
+  const [txnList, setTxnList] = useState<AccountTxn[]>([])
+  const [txnSummary, setTxnSummary] = useState<TxnSummary | null>(null)
+  const [txnLoading, setTxnLoading] = useState(false)
   const [positionDialogAccountId, setPositionDialogAccountId] = useState<number | null>(null)
   const [positionSearchQuery, setPositionSearchQuery] = useState('')
   const [positionSearchMarket, setPositionSearchMarket] = useState('')  // 搜索市场筛选
@@ -595,6 +636,8 @@ export default function StocksPage() {
         name: account.name,
         available_funds: account.available_funds,
         enabled: true,
+        commission_rate: (account as { commission_rate?: number }).commission_rate ?? 0.00025,
+        commission_min: (account as { commission_min?: number }).commission_min ?? 5,
       })))
       setExpandedAccounts(prev => new Set([...prev, ...portfolioData.accounts.map(account => account.id)]))
       setPortfolio(mergePortfolioQuotes(portfolioData, quotes))
@@ -638,6 +681,8 @@ export default function StocksPage() {
         name: account.name,
         available_funds: account.available_funds,
         enabled: true,
+        commission_rate: (account as { commission_rate?: number }).commission_rate ?? 0.00025,
+        commission_min: (account as { commission_min?: number }).commission_min ?? 5,
       }))
       setAccounts(nextAccounts)
       setExpandedAccounts(new Set(nextAccounts.map(account => account.id)))
@@ -973,7 +1018,12 @@ export default function StocksPage() {
   // ========== Account handlers ==========
   const openAccountDialog = (account?: Account) => {
     if (account) {
-      setAccountForm({ name: account.name, available_funds: account.available_funds.toString() })
+      setAccountForm({
+        name: account.name,
+        available_funds: account.available_funds.toString(),
+        commission_rate_wan: ((account.commission_rate ?? 0.00025) * 10000).toString(),
+        commission_min: (account.commission_min ?? 5).toString(),
+      })
       setEditAccountId(account.id)
     } else {
       setAccountForm(emptyAccountForm)
@@ -987,6 +1037,8 @@ export default function StocksPage() {
       const payload = {
         name: accountForm.name,
         available_funds: parseFloat(accountForm.available_funds) || 0,
+        commission_rate: (parseFloat(accountForm.commission_rate_wan) || 0) / 10000,
+        commission_min: parseFloat(accountForm.commission_min) || 0,
       }
       if (editAccountId) {
         await fetchAPI(`/accounts/${editAccountId}`, { method: 'PUT', body: JSON.stringify(payload) })
@@ -1015,6 +1067,23 @@ export default function StocksPage() {
   }
 
   // ========== Position handlers ==========
+  const openTxnDialog = async (accountId: number) => {
+    const account = accounts.find(a => a.id === accountId)
+    setTxnDialogAccount({ id: accountId, name: account?.name || '' })
+    setTxnList([])
+    setTxnSummary(null)
+    setTxnLoading(true)
+    try {
+      const data = await fetchAPI<{ items: AccountTxn[]; summary: TxnSummary }>(`/accounts/${accountId}/transactions`)
+      setTxnList(data.items)
+      setTxnSummary(data.summary)
+    } catch {
+      toast(stockT('stocksPage.messages.transactionsLoadFailed'), 'error')
+    } finally {
+      setTxnLoading(false)
+    }
+  }
+
   const openPositionDialog = (accountId: number, position?: Position) => {
     setPositionDialogAccountId(accountId)
     setPositionSearchQuery('')
@@ -1028,6 +1097,12 @@ export default function StocksPage() {
         quantity: position.quantity.toString(),
         invested_amount: position.invested_amount?.toString() || '',
         trading_style: position.trading_style || '',
+        action: 'buy',
+        trade_price: '',
+        trade_quantity: '',
+        fee: '',
+        traded_at: '',
+        note: '',
         stock_symbol: position.symbol,
         stock_name: position.name,
         stock_market: position.market,
@@ -1041,6 +1116,12 @@ export default function StocksPage() {
         quantity: '',
         invested_amount: '',
         trading_style: '',
+        action: 'buy',
+        trade_price: '',
+        trade_quantity: '',
+        fee: '',
+        traded_at: '',
+        note: '',
         stock_symbol: '',
         stock_name: '',
         stock_market: 'CN',
@@ -1126,13 +1207,37 @@ export default function StocksPage() {
         }
       }
 
-      const payload = {
-        account_id: positionForm.account_id,
-        stock_id: stockId,
-        cost_price: parseFloat(positionForm.cost_price),
-        quantity: parseInt(positionForm.quantity),
-        invested_amount: positionForm.invested_amount ? parseFloat(positionForm.invested_amount) : null,
-        trading_style: positionForm.trading_style,  // 空字符串表示清空
+      const isTrade = !!editPositionId && positionForm.action !== 'adjust'
+      let payload: Record<string, unknown>
+      if (isTrade) {
+        // 买入加仓 / 卖出减仓
+        payload = {
+          action: positionForm.action,
+          trade_price: parseFloat(positionForm.trade_price),
+          trade_quantity: parseInt(positionForm.trade_quantity),
+          traded_at: positionForm.traded_at ? new Date(positionForm.traded_at) : null,
+          note: positionForm.note || '',
+        }
+      } else if (editPositionId) {
+        // 仅修正信息
+        payload = {
+          action: 'adjust',
+          cost_price: parseFloat(positionForm.cost_price),
+          quantity: parseInt(positionForm.quantity),
+          invested_amount: positionForm.invested_amount ? parseFloat(positionForm.invested_amount) : null,
+          trading_style: positionForm.trading_style,
+        }
+      } else {
+        // 新建持仓 = 第一笔买入
+        payload = {
+          account_id: positionForm.account_id,
+          stock_id: stockId,
+          cost_price: parseFloat(positionForm.trade_price),
+          quantity: parseInt(positionForm.trade_quantity),
+          traded_at: positionForm.traded_at ? new Date(positionForm.traded_at) : null,
+          note: positionForm.note || '',
+          trading_style: positionForm.trading_style,
+        }
       }
       if (editPositionId) {
         await fetchAPI(`/positions/${editPositionId}`, { method: 'PUT', body: JSON.stringify(payload) })
@@ -1416,6 +1521,17 @@ export default function StocksPage() {
       </div>
     )
   }
+
+  // 手续费预览：按当前账户佣金费率与市场规则实时估算
+  const tradeAmount = (parseFloat(positionForm.trade_price) || 0) * (parseFloat(positionForm.trade_quantity) || 0)
+  const tradeAccount = accounts.find(a => a.id === positionForm.account_id)
+  const tradeFee = calcFeePreview(
+    positionForm.stock_market,
+    positionForm.action === 'adjust' ? 'buy' : positionForm.action,
+    tradeAmount,
+    tradeAccount?.commission_rate ?? 0.00025,
+    tradeAccount?.commission_min ?? 5,
+  )
 
   return (
     <div>
@@ -1788,6 +1904,9 @@ export default function StocksPage() {
                     </div>
                   </div>
                   <div className="flex items-center gap-0 md:gap-1 shrink-0" onClick={e => e.stopPropagation()}>
+                    <Button variant="ghost" size="icon" className="h-7 w-7 md:h-8 md:w-8" aria-label={stockT('stocksPage.messages.transactions')} onClick={() => openTxnDialog(account.id)}>
+                      <ScrollText className="w-3 md:w-3.5 h-3 md:h-3.5" />
+                    </Button>
                     <Button variant="ghost" size="icon" className="h-7 w-7 md:h-8 md:w-8" onClick={() => openPositionDialog(account.id)}>
                       <Plus className="w-3 md:w-3.5 h-3 md:h-3.5" />
                     </Button>
@@ -2480,6 +2599,31 @@ export default function StocksPage() {
                 inputMode="decimal"
               />
             </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>{stockT('stocksPage.messages.commissionRate')}</Label>
+                <div className="flex items-center gap-1">
+                  <Input
+                    value={accountForm.commission_rate_wan}
+                    onChange={e => setAccountForm({ ...accountForm, commission_rate_wan: e.target.value })}
+                    placeholder="2.5"
+                    className="font-mono"
+                    inputMode="decimal"
+                  />
+                  <span className="text-[11px] text-muted-foreground whitespace-nowrap">{stockT('stocksPage.messages.perWan')}</span>
+                </div>
+              </div>
+              <div>
+                <Label>{stockT('stocksPage.messages.commissionMin')}</Label>
+                <Input
+                  value={accountForm.commission_min}
+                  onChange={e => setAccountForm({ ...accountForm, commission_min: e.target.value })}
+                  placeholder="5"
+                  className="font-mono"
+                  inputMode="decimal"
+                />
+              </div>
+            </div>
             <div className="flex justify-end gap-2 pt-2">
               <Button variant="ghost" onClick={() => setAccountDialogOpen(false)}>{stockT('stocksPage.messages.cancel')}</Button>
               <Button onClick={handleAccountSubmit} disabled={!accountForm.name}>
@@ -2596,67 +2740,213 @@ export default function StocksPage() {
                 )}
               </div>
             )}
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label>{stockT('stocksPage.messages.costPrice')}</Label>
-                <Input
-                  value={positionForm.cost_price}
-                  onChange={e => setPositionForm({ ...positionForm, cost_price: e.target.value })}
-                  placeholder="0.00"
-                  className="font-mono"
-                  inputMode="decimal"
-                />
+            {editPositionId && (
+              <div className="grid grid-cols-3 gap-2">
+                {(['buy', 'sell', 'adjust'] as const).map((a) => (
+                  <button
+                    key={a}
+                    type="button"
+                    onClick={() => setPositionForm({ ...positionForm, action: a })}
+                    className={`rounded-lg border px-2 py-1.5 text-[12px] transition-colors ${positionForm.action === a ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:bg-accent/50'}`}
+                  >
+                    {a === 'buy' ? stockT('stocksPage.messages.actionBuy') : a === 'sell' ? stockT('stocksPage.messages.actionSell') : stockT('stocksPage.messages.actionAdjust')}
+                  </button>
+                ))}
               </div>
-              <div>
-                <Label>{stockT('stocksPage.messages.quantity')}</Label>
-                <Input
-                  value={positionForm.quantity}
-                  onChange={e => setPositionForm({ ...positionForm, quantity: e.target.value })}
-                  placeholder="0"
-                  className="font-mono"
-                  inputMode="numeric"
-                />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label>{stockT('stocksPage.messages.investedAmount')} <span className="text-muted-foreground/60 text-[11px]">({stockT('stocksPage.messages.optional')})</span></Label>
-                <Input
-                  value={positionForm.invested_amount}
-                  onChange={e => setPositionForm({ ...positionForm, invested_amount: e.target.value })}
-                  placeholder={stockT('stocksPage.messages.optional')}
-                  className="font-mono"
-                  inputMode="decimal"
-                />
-              </div>
-              <div>
-                <Label>{stockT('stocksPage.messages.tradingStyle')} <span className="text-muted-foreground font-normal">({stockT('stocksPage.messages.optional')})</span></Label>
-                <Select
-                  value={positionForm.trading_style}
-                  onValueChange={val => setPositionForm({ ...positionForm, trading_style: val === '__none__' ? '' : val })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder={stockT('stocksPage.messages.unset')} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none__">{stockT('stocksPage.messages.unset')}</SelectItem>
-                    <SelectItem value="short">{stockT('stocksPage.messages.shortStyle')}</SelectItem>
-                    <SelectItem value="swing">{stockT('stocksPage.messages.swingStyle')}</SelectItem>
-                    <SelectItem value="long">{stockT('stocksPage.messages.longStyle')}</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
+            )}
+            {(!editPositionId || positionForm.action !== 'adjust') ? (
+              <>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label>{stockT('stocksPage.messages.tradePrice')}</Label>
+                    <Input
+                      value={positionForm.trade_price}
+                      onChange={e => setPositionForm({ ...positionForm, trade_price: e.target.value })}
+                      placeholder="0.00"
+                      className="font-mono"
+                      inputMode="decimal"
+                    />
+                  </div>
+                  <div>
+                    <Label>{stockT('stocksPage.messages.tradeQuantity')}</Label>
+                    <Input
+                      value={positionForm.trade_quantity}
+                      onChange={e => setPositionForm({ ...positionForm, trade_quantity: e.target.value })}
+                      placeholder="0"
+                      className="font-mono"
+                      inputMode="numeric"
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label>{stockT('stocksPage.messages.fee')}</Label>
+                    <div className="flex h-9 items-center rounded-md border border-border bg-accent/30 px-3 font-mono text-[13px] text-foreground">
+                      {tradeAmount > 0 ? tradeFee.fee.toFixed(2) : '0.00'}
+                    </div>
+                  </div>
+                  <div>
+                    <Label>{stockT('stocksPage.messages.tradedAt')} <span className="text-muted-foreground/60 text-[11px]">({stockT('stocksPage.messages.optional')})</span></Label>
+                    <Input
+                      type="datetime-local"
+                      value={positionForm.traded_at}
+                      onChange={e => setPositionForm({ ...positionForm, traded_at: e.target.value })}
+                      className="font-mono"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <Label>{stockT('stocksPage.messages.note')} <span className="text-muted-foreground/60 text-[11px]">({stockT('stocksPage.messages.optional')})</span></Label>
+                  <Input
+                    value={positionForm.note}
+                    onChange={e => setPositionForm({ ...positionForm, note: e.target.value })}
+                  />
+                </div>
+                {!editPositionId && (
+                  <div>
+                    <Label>{stockT('stocksPage.messages.tradingStyle')} <span className="text-muted-foreground font-normal">({stockT('stocksPage.messages.optional')})</span></Label>
+                    <Select
+                      value={positionForm.trading_style}
+                      onValueChange={val => setPositionForm({ ...positionForm, trading_style: val === '__none__' ? '' : val })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder={stockT('stocksPage.messages.unset')} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">{stockT('stocksPage.messages.unset')}</SelectItem>
+                        <SelectItem value="short">{stockT('stocksPage.messages.shortStyle')}</SelectItem>
+                        <SelectItem value="swing">{stockT('stocksPage.messages.swingStyle')}</SelectItem>
+                        <SelectItem value="long">{stockT('stocksPage.messages.longStyle')}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label>{stockT('stocksPage.messages.costPrice')}</Label>
+                    <Input
+                      value={positionForm.cost_price}
+                      onChange={e => setPositionForm({ ...positionForm, cost_price: e.target.value })}
+                      placeholder="0.00"
+                      className="font-mono"
+                      inputMode="decimal"
+                    />
+                  </div>
+                  <div>
+                    <Label>{stockT('stocksPage.messages.quantity')}</Label>
+                    <Input
+                      value={positionForm.quantity}
+                      onChange={e => setPositionForm({ ...positionForm, quantity: e.target.value })}
+                      placeholder="0"
+                      className="font-mono"
+                      inputMode="numeric"
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label>{stockT('stocksPage.messages.investedAmount')} <span className="text-muted-foreground/60 text-[11px]">({stockT('stocksPage.messages.optional')})</span></Label>
+                    <Input
+                      value={positionForm.invested_amount}
+                      onChange={e => setPositionForm({ ...positionForm, invested_amount: e.target.value })}
+                      placeholder={stockT('stocksPage.messages.optional')}
+                      className="font-mono"
+                      inputMode="decimal"
+                    />
+                  </div>
+                  <div>
+                    <Label>{stockT('stocksPage.messages.tradingStyle')} <span className="text-muted-foreground font-normal">({stockT('stocksPage.messages.optional')})</span></Label>
+                    <Select
+                      value={positionForm.trading_style}
+                      onValueChange={val => setPositionForm({ ...positionForm, trading_style: val === '__none__' ? '' : val })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder={stockT('stocksPage.messages.unset')} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">{stockT('stocksPage.messages.unset')}</SelectItem>
+                        <SelectItem value="short">{stockT('stocksPage.messages.shortStyle')}</SelectItem>
+                        <SelectItem value="swing">{stockT('stocksPage.messages.swingStyle')}</SelectItem>
+                        <SelectItem value="long">{stockT('stocksPage.messages.longStyle')}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </>
+            )}
             <div className="flex justify-end gap-2 pt-2">
               <Button variant="ghost" onClick={() => setPositionDialogOpen(false)}>{stockT('stocksPage.messages.cancel')}</Button>
               <Button
                 onClick={handlePositionSubmit}
-                disabled={!positionForm.cost_price || !positionForm.quantity || (!editPositionId && !positionForm.stock_id && !positionForm.stock_symbol)}
+                disabled={
+                  positionForm.action === 'adjust' && editPositionId
+                    ? (!positionForm.cost_price || !positionForm.quantity)
+                    : (!positionForm.trade_price || !positionForm.trade_quantity || (!editPositionId && !positionForm.stock_id && !positionForm.stock_symbol))
+                }
               >
                 {editPositionId ? stockT('stocksPage.messages.save') : stockT('stocksPage.messages.add')}
               </Button>
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Account Transactions Dialog */}
+      <Dialog open={!!txnDialogAccount} onOpenChange={open => { if (!open) setTxnDialogAccount(null) }}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>{txnDialogAccount?.name} · {stockT('stocksPage.messages.transactions')}</DialogTitle>
+          </DialogHeader>
+          <div className="max-h-[55vh] overflow-auto scrollbar">
+            {txnLoading ? (
+              <p className="py-6 text-center text-[13px] text-muted-foreground">{stockT('stocksPage.messages.loading')}</p>
+            ) : txnList.length === 0 ? (
+              <p className="py-6 text-center text-[13px] text-muted-foreground">{stockT('stocksPage.messages.noTransactions')}</p>
+            ) : (
+              <table className="w-full text-[12px]">
+                <thead className="text-muted-foreground">
+                  <tr className="border-b border-border">
+                    <th className="px-2 py-2 text-left font-normal">{stockT('stocksPage.messages.tradedAt')}</th>
+                    <th className="px-2 py-2 text-left font-normal">{stockT('stocksPage.messages.stock')}</th>
+                    <th className="px-2 py-2 text-right font-normal">{stockT('stocksPage.messages.tradeQuantity')}</th>
+                    <th className="px-2 py-2 text-right font-normal">{stockT('stocksPage.messages.tradePrice')}</th>
+                    <th className="px-2 py-2 text-right font-normal">{stockT('stocksPage.messages.realizedPnl')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {txnList.map(t => (
+                    <tr key={t.id} className="border-b border-border/60">
+                      <td className="px-2 py-2 whitespace-nowrap text-muted-foreground">{t.traded_at ? formatPreviewTime(t.traded_at) : ''}</td>
+                      <td className="px-2 py-2">
+                        <span className={`mr-1 rounded px-1 py-0.5 text-[10px] ${t.side === 'buy' ? 'bg-market-up/10 text-market-up' : 'bg-market-down/10 text-market-down'}`}>
+                          {t.side === 'buy' ? stockT('stocksPage.messages.sideBuy') : stockT('stocksPage.messages.sideSell')}
+                        </span>
+                        <span className="text-foreground">{t.stock_name}</span>
+                        <span className="ml-1 font-mono text-muted-foreground">{t.stock_symbol}</span>
+                        {t.note && <span className="ml-1 text-muted-foreground">· {t.note}</span>}
+                      </td>
+                      <td className="px-2 py-2 text-right font-mono text-foreground">{t.quantity}</td>
+                      <td className="px-2 py-2 text-right font-mono text-foreground">{t.price.toFixed(2)}</td>
+                      <td className={`px-2 py-2 text-right font-mono ${t.realized_pnl == null ? 'text-muted-foreground' : marketSignTextClass(t.realized_pnl)}`}>
+                        {t.realized_pnl == null ? '—' : `${t.realized_pnl > 0 ? '+' : ''}${formatMoney(t.realized_pnl)}`}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+          {txnSummary && (
+            <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-1 border-t border-border pt-2 text-[11px] text-muted-foreground">
+              <span>{stockT('stocksPage.messages.buyAmount')}: <span className="font-mono text-foreground">{formatMoney(txnSummary.buy_amount)}</span></span>
+              <span>{stockT('stocksPage.messages.sellAmount')}: <span className="font-mono text-foreground">{formatMoney(txnSummary.sell_amount)}</span></span>
+              <span>{stockT('stocksPage.messages.totalFee')}: <span className="font-mono text-foreground">{formatMoney(txnSummary.total_fee)}</span></span>
+              <span>{stockT('stocksPage.messages.realizedPnl')}: <span className={`font-mono ${marketSignTextClass(txnSummary.realized_pnl)}`}>{txnSummary.realized_pnl > 0 ? '+' : ''}{formatMoney(txnSummary.realized_pnl)}</span></span>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
 

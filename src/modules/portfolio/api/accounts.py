@@ -11,8 +11,9 @@ from pydantic import BaseModel
 
 from datetime import datetime, timedelta, timezone
 
+from src.modules.portfolio.fees import calc_fee
 from src.platform.persistence.database import get_db
-from src.platform.persistence.models import Account, PriceAlertRule, Position, Stock
+from src.platform.persistence.models import Account, AccountTransaction, PriceAlertRule, Position, Stock
 from src.platform.marketdata.marketdata_client import md_quote_rows
 from src.platform.marketdata.collectors.market_http import TTLCache
 from src.platform.marketdata.models import MarketCode
@@ -101,12 +102,16 @@ def get_usd_cny_rate() -> float:
 class AccountCreate(BaseModel):
     name: str
     available_funds: float = 0
+    commission_rate: float = 0.00025  # 佣金费率，默认万2.5
+    commission_min: float = 5.0  # 最低佣金，0 表示无最低
 
 
 class AccountUpdate(BaseModel):
     name: str | None = None
     available_funds: float | None = None
     enabled: bool | None = None
+    commission_rate: float | None = None
+    commission_min: float | None = None
 
 
 class AccountResponse(BaseModel):
@@ -114,6 +119,8 @@ class AccountResponse(BaseModel):
     name: str
     available_funds: float
     enabled: bool
+    commission_rate: float = 0.00025
+    commission_min: float = 5.0
 
     class Config:
         from_attributes = True
@@ -126,6 +133,9 @@ class PositionCreate(BaseModel):
     quantity: int
     invested_amount: float | None = None
     trading_style: str | None = None  # short: 短线, swing: 波段, long: 长线
+    fee: float = 0.0  # 手续费
+    traded_at: datetime | None = None  # 交易时间，缺省为当前时间
+    note: str | None = None  # 备注
 
 
 class PositionUpdate(BaseModel):
@@ -133,6 +143,32 @@ class PositionUpdate(BaseModel):
     quantity: int | None = None
     invested_amount: float | None = None
     trading_style: str | None = None
+    # 动作类型：buy 买入加仓 / sell 卖出减仓 / adjust 仅修正信息（默认）
+    action: str = "adjust"
+    trade_quantity: int | None = None  # 本次成交数量（buy/sell）
+    trade_price: float | None = None  # 本次成交价格（buy/sell）
+    fee: float = 0.0
+    traded_at: datetime | None = None
+    note: str | None = None
+
+
+class TransactionResponse(BaseModel):
+    id: int
+    account_id: int
+    stock_id: int
+    side: str
+    quantity: int
+    price: float
+    amount: float
+    fee: float
+    realized_pnl: float | None
+    traded_at: datetime | None
+    note: str | None
+    stock_symbol: str | None = None
+    stock_name: str | None = None
+
+    class Config:
+        from_attributes = True
 
 
 class PositionResponse(BaseModel):
@@ -179,10 +215,58 @@ def get_account(account_id: int, db: Session = Depends(get_db)):
     return account
 
 
+@router.get("/accounts/{account_id}/transactions")
+def list_account_transactions(account_id: int, db: Session = Depends(get_db)):
+    """获取某账户的买卖明细流水（按交易时间倒序），并附买入/卖出/已实现盈亏汇总。"""
+    account = db.query(Account).filter(Account.id == account_id).first()
+    if not account:
+        raise api_error(404, "account_not_found", "账户不存在")
+
+    rows = (
+        db.query(AccountTransaction)
+        .filter(AccountTransaction.account_id == account_id)
+        .order_by(
+            AccountTransaction.traded_at.desc(),
+            AccountTransaction.id.desc(),
+        )
+        .all()
+    )
+    items = [
+        {
+            "id": txn.id,
+            "account_id": txn.account_id,
+            "stock_id": txn.stock_id,
+            "side": txn.side,
+            "quantity": txn.quantity,
+            "price": txn.price,
+            "amount": txn.amount,
+            "fee": txn.fee or 0.0,
+            "realized_pnl": txn.realized_pnl,
+            "traded_at": txn.traded_at,
+            "note": txn.note or "",
+            "stock_symbol": txn.stock.symbol if txn.stock else None,
+            "stock_name": txn.stock.name if txn.stock else None,
+        }
+        for txn in rows
+    ]
+    summary = {
+        "buy_amount": sum(t["amount"] for t in items if t["side"] == "buy"),
+        "sell_amount": sum(t["amount"] for t in items if t["side"] == "sell"),
+        "total_fee": sum(t["fee"] for t in items),
+        "realized_pnl": sum(t["realized_pnl"] or 0 for t in items),
+    }
+    return {"items": items, "summary": summary}
+
+
 @router.post("/accounts", response_model=AccountResponse)
 def create_account(data: AccountCreate, db: Session = Depends(get_db)):
     """创建账户"""
-    account = Account(name=data.name, available_funds=data.available_funds)
+    account = Account(
+        name=data.name,
+        available_funds=data.available_funds,
+        commission_rate=data.commission_rate,
+        commission_min=data.commission_min,
+    )
     db.add(account)
     db.commit()
     db.refresh(account)
@@ -203,6 +287,10 @@ def update_account(account_id: int, data: AccountUpdate, db: Session = Depends(g
         account.available_funds = data.available_funds
     if data.enabled is not None:
         account.enabled = data.enabled
+    if data.commission_rate is not None:
+        account.commission_rate = data.commission_rate
+    if data.commission_min is not None:
+        account.commission_min = data.commission_min
 
     db.commit()
     db.refresh(account)
@@ -294,7 +382,30 @@ def create_position(data: PositionCreate, db: Session = Depends(get_db)):
         sort_order=int(max_order) + 1,
         trading_style=data.trading_style,
     )
+    # 手续费按市场规则自动计算（以账户佣金费率为准）
+    amount = data.cost_price * data.quantity
+    fee = calc_fee(
+        stock.market, "buy", amount,
+        account.commission_rate or 0.00025, account.commission_min or 0.0,
+    )["fee"]
+    # 首买手续费计入成本，保证现金口径与已实现盈亏一致
+    if fee:
+        position.cost_price = data.cost_price + fee / data.quantity
     db.add(position)
+    # 新建持仓即第一笔买入：写买入流水，账户现金减少（金额+手续费）
+    db.add(AccountTransaction(
+        account_id=data.account_id,
+        stock_id=data.stock_id,
+        side="buy",
+        quantity=data.quantity,
+        price=data.cost_price,
+        amount=amount,
+        fee=fee,
+        realized_pnl=None,
+        traded_at=data.traded_at or datetime.now(),
+        note=(data.note or "").strip(),
+    ))
+    account.available_funds = (account.available_funds or 0) - amount - fee
     db.commit()
     db.refresh(position)
 
@@ -321,32 +432,113 @@ def update_position(position_id: int, data: PositionUpdate, db: Session = Depend
     if not position:
         raise api_error(404, "position_not_found", "持仓不存在")
 
-    if data.cost_price is not None:
-        position.cost_price = data.cost_price
-    if data.quantity is not None:
-        position.quantity = data.quantity
-    if data.invested_amount is not None:
-        position.invested_amount = data.invested_amount
-    if data.trading_style is not None:
-        # 空字符串表示清空，设为 None
-        position.trading_style = data.trading_style if data.trading_style else None
+    account = position.account
+    account_name = account.name if account else None
+    account_id = position.account_id
+    stock_id = position.stock_id
+    cost_price = position.cost_price
+    stock_symbol = position.stock.symbol if position.stock else None
+    stock_name = position.stock.name if position.stock else None
+    stock_market = position.stock.market if position.stock else None
+    deleted = False
+
+    if data.action == "buy":
+        # 买入加仓：加权平均成本（手续费计入成本），写流水，现金减少
+        qty = data.trade_quantity or 0
+        price = data.trade_price
+        if qty <= 0 or price is None or price <= 0:
+            raise api_error(400, "invalid_trade", "买入数量或价格无效")
+        amount = price * qty
+        fee = calc_fee(
+            stock_market, "buy", amount,
+            account.commission_rate if account else 0.00025,
+            account.commission_min if account else 5.0,
+        )["fee"]
+        old_qty = position.quantity or 0
+        new_qty = old_qty + qty
+        position.cost_price = (
+            position.cost_price * old_qty + price * qty + fee
+        ) / new_qty
+        position.quantity = new_qty
+        db.add(AccountTransaction(
+            account_id=position.account_id,
+            stock_id=position.stock_id,
+            side="buy",
+            quantity=qty,
+            price=price,
+            amount=amount,
+            fee=fee,
+            realized_pnl=None,
+            traded_at=data.traded_at or datetime.now(),
+            note=(data.note or "").strip(),
+        ))
+        if account:
+            account.available_funds = (account.available_funds or 0) - amount - fee
+    elif data.action == "sell":
+        # 卖出减仓：剩余成本不变；已实现盈亏=(卖价-成本)×数量-手续费；现金增加
+        qty = data.trade_quantity or 0
+        price = data.trade_price
+        if qty <= 0 or price is None or price <= 0:
+            raise api_error(400, "invalid_trade", "卖出数量或价格无效")
+        if qty > position.quantity:
+            raise api_error(400, "invalid_trade", "卖出数量超过当前持仓")
+        amount = price * qty
+        fee = calc_fee(
+            stock_market, "sell", amount,
+            account.commission_rate if account else 0.00025,
+            account.commission_min if account else 5.0,
+        )["fee"]
+        avg_cost = position.cost_price
+        realized = (price - avg_cost) * qty - fee
+        remaining = position.quantity - qty
+        db.add(AccountTransaction(
+            account_id=position.account_id,
+            stock_id=position.stock_id,
+            side="sell",
+            quantity=qty,
+            price=price,
+            amount=amount,
+            fee=fee,
+            realized_pnl=realized,
+            traded_at=data.traded_at or datetime.now(),
+            note=(data.note or "").strip(),
+        ))
+        if account:
+            account.available_funds = (account.available_funds or 0) + amount - fee
+        if remaining == 0:
+            db.delete(position)
+            deleted = True
+        else:
+            position.quantity = remaining
+    else:
+        # adjust：仅修正信息，不动现金、不产生流水
+        if data.cost_price is not None:
+            position.cost_price = data.cost_price
+        if data.quantity is not None:
+            position.quantity = data.quantity
+        if data.invested_amount is not None:
+            position.invested_amount = data.invested_amount
+        if data.trading_style is not None:
+            # 空字符串表示清空，设为 None
+            position.trading_style = data.trading_style if data.trading_style else None
 
     db.commit()
-    db.refresh(position)
+    if not deleted:
+        db.refresh(position)
 
-    logger.info(f"更新持仓: {position.account.name} - {position.stock.name}")
+    logger.info(f"更新持仓({data.action}): {account_name} - {stock_name}")
     return {
-        "id": position.id,
-        "account_id": position.account_id,
-        "stock_id": position.stock_id,
-        "cost_price": position.cost_price,
-        "quantity": position.quantity,
-        "invested_amount": position.invested_amount,
-        "sort_order": position.sort_order or 0,
-        "trading_style": position.trading_style,
-        "account_name": position.account.name,
-        "stock_symbol": position.stock.symbol,
-        "stock_name": position.stock.name,
+        "id": position_id,
+        "account_id": account_id,
+        "stock_id": stock_id,
+        "cost_price": position.cost_price if not deleted else cost_price,
+        "quantity": 0 if deleted else position.quantity,
+        "invested_amount": None if deleted else position.invested_amount,
+        "sort_order": 0 if deleted else (position.sort_order or 0),
+        "trading_style": None if deleted else position.trading_style,
+        "account_name": account_name,
+        "stock_symbol": stock_symbol,
+        "stock_name": stock_name,
     }
 
 
@@ -543,6 +735,8 @@ def get_portfolio_summary(
             "id": acc.id,
             "name": acc.name,
             "available_funds": acc.available_funds,
+            "commission_rate": acc.commission_rate if acc.commission_rate is not None else 0.00025,
+            "commission_min": acc.commission_min if acc.commission_min is not None else 5.0,
             "total_market_value": round(acc_market_value, 2),
             "total_cost": round(acc_cost, 2),
             "total_pnl": round(acc_pnl, 2),
