@@ -258,7 +258,7 @@ export default function StocksPage() {
   const [lastRefreshTime, setLastRefreshTime] = useState<Date | null>(null)
   const refreshTimerRef = useRef<ReturnType<typeof setInterval>>()
 
-  type ViewTab = 'positions' | 'watchlist'
+  type ViewTab = 'positions' | 'announcements' | 'watchlist'
   const [viewTab, setViewTab] = useLocalStorage<ViewTab>('panwatch_stocks_viewTab', 'positions')
 
   // 建议池建议（来自 /suggestions API）
@@ -320,6 +320,13 @@ export default function StocksPage() {
   const [txnList, setTxnList] = useState<AccountTxn[]>([])
   const [txnSummary, setTxnSummary] = useState<TxnSummary | null>(null)
   const [txnLoading, setTxnLoading] = useState(false)
+
+  // 持仓公告
+  const [holdingAnnouncements, setHoldingAnnouncements] = useState<NewsItem[]>([])
+  const [announcementsLoading, setAnnouncementsLoading] = useState(false)
+  const [announcementsLoaded, setAnnouncementsLoaded] = useState(false)
+  const [announcementsPage, setAnnouncementsPage] = useState(1)
+  const ANNOUNCEMENTS_PAGE_SIZE = 20
   const [positionDialogAccountId, setPositionDialogAccountId] = useState<number | null>(null)
   const [positionSearchQuery, setPositionSearchQuery] = useState('')
   const [positionSearchMarket, setPositionSearchMarket] = useState('')  // 搜索市场筛选
@@ -730,6 +737,80 @@ export default function StocksPage() {
     initialLoadPromiseRef.current = run
     return run
   }, [refreshMarketStatus, requestKlineSummaries, requestPriceAlerts, requestQuotes, requestSuggestions])
+
+  // Load all holding-stock announcements (eastmoney 公告源，30 天，上限 200 条)
+  const loadHoldingAnnouncements = useCallback(async () => {
+    setAnnouncementsLoading(true)
+    try {
+      const names = Array.from(new Set((portfolio?.accounts || []).flatMap(a => a.positions).map(p => p.name).filter(Boolean)))
+      if (!names.length) {
+        setHoldingAnnouncements([])
+        return
+      }
+      const params = new URLSearchParams({
+        names: names.join(','),
+        hours: '720',
+        limit: '200',
+        source: 'eastmoney',
+        filter_related: 'true',
+      })
+      const data = await fetchAPI<NewsItem[]>(`/news?${params}`)
+      setHoldingAnnouncements(data)
+      setAnnouncementsPage(1)
+    } catch (e) {
+      console.error('加载持仓公告失败:', e)
+    } finally {
+      setAnnouncementsLoading(false)
+      setAnnouncementsLoaded(true)
+    }
+  }, [portfolio])
+
+  // 排序：日期倒序，同日同股票的公告排在一起（按该组最新公告时间决定组内顺序）
+  const announcementGroups = useMemo(() => {
+    const groupMap = new Map<string, { date: string; stock: string; items: NewsItem[]; latest: number }>()
+    for (const item of holdingAnnouncements) {
+      const d = item.publish_time ? new Date(item.publish_time) : null
+      if (!d || isNaN(d.getTime())) continue
+      const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+      const stock = item.symbols?.[0] || item.title.split(/[:：]/)[0] || ''
+      const key = `${date}__${stock}`
+      const g = groupMap.get(key)
+      if (g) {
+        g.items.push(item)
+        if (d.getTime() > g.latest) g.latest = d.getTime()
+      } else {
+        groupMap.set(key, { date, stock, items: [item], latest: d.getTime() })
+      }
+    }
+    return Array.from(groupMap.values())
+      .sort((a, b) => b.latest - a.latest || (a.stock > b.stock ? 1 : -1))
+      .map(g => ({ ...g, items: g.items.sort((a, b) => new Date(b.publish_time).getTime() - new Date(a.publish_time).getTime()) }))
+  }, [holdingAnnouncements])
+
+  // 分页：保持同日同股的分组不被拆到两页，每页约 20 条
+  const pagedAnnouncementGroups = useMemo(() => {
+    const pages: typeof announcementGroups[] = []
+    let current: typeof announcementGroups = []
+    let count = 0
+    for (const g of announcementGroups) {
+      if (current.length > 0 && count + g.items.length > ANNOUNCEMENTS_PAGE_SIZE) {
+        pages.push(current)
+        current = []
+        count = 0
+      }
+      current.push(g)
+      count += g.items.length
+    }
+    if (current.length) pages.push(current)
+    return pages
+  }, [announcementGroups])
+
+  // 打开"持仓公告"Tab 时首次加载
+  useEffect(() => {
+    if (viewTab === 'announcements' && !announcementsLoaded && !announcementsLoading) {
+      void loadHoldingAnnouncements()
+    }
+  }, [viewTab, announcementsLoaded, announcementsLoading, loadHoldingAnnouncements])
 
   // Load news for specific stock or all watchlist
   const loadNews = useCallback(async (stockName?: string) => {
@@ -1739,6 +1820,16 @@ export default function StocksPage() {
             {stockT('stocksPage.messages.portfolio')} <span className="ml-1 font-mono text-[11px] opacity-70">{positionsCount}</span>
           </button>
           <button
+            onClick={() => setViewTab('announcements')}
+            className={`px-3 py-1.5 rounded-md text-[12px] transition-colors ${
+              viewTab === 'announcements'
+                ? 'bg-background text-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            {stockT('stocksPage.messages.holdingAnnouncements')}
+          </button>
+          <button
             onClick={() => setViewTab('watchlist')}
             className={`px-3 py-1.5 rounded-md text-[12px] transition-colors ${
               viewTab === 'watchlist'
@@ -2285,6 +2376,88 @@ export default function StocksPage() {
           ))}
         </div>
         )
+      )}
+
+      {/* Holding Announcements */}
+      {viewTab === 'announcements' && (
+        <div className="card p-4">
+          <div className="mb-3 flex items-center gap-2">
+            <Newspaper className="h-4 w-4 text-primary" />
+            <h2 className="text-[14px] font-semibold">{stockT('stocksPage.messages.holdingAnnouncements')}</h2>
+            <span className="text-[11px] text-muted-foreground">
+              {stockT('stocksPage.messages.positionCount', { count: holdingAnnouncements.length })}
+            </span>
+            <Button
+              variant="ghost" size="sm" className="ml-auto h-7 text-[12px]"
+              onClick={() => void loadHoldingAnnouncements()}
+              disabled={announcementsLoading}
+            >
+              {announcementsLoading ? (
+                <span className="h-3 w-3 animate-spin rounded-full border-2 border-current/30 border-t-current" />
+              ) : (
+                <RefreshCw className="h-3.5 w-3.5" />
+              )}
+            </Button>
+          </div>
+
+          {announcementsLoading && holdingAnnouncements.length === 0 ? (
+            <div className="py-8 text-center text-[12px] text-muted-foreground">{stockT('stocksPage.messages.loading')}</div>
+          ) : announcementGroups.length === 0 ? (
+            <div className="py-8 text-center text-[12px] text-muted-foreground">{stockT('stocksPage.messages.noHoldingAnnouncements')}</div>
+          ) : (
+            <>
+              <div className="space-y-4">
+                {pagedAnnouncementGroups[announcementsPage - 1]?.map(g => (
+                  <div key={`${g.date}__${g.stock}`}>
+                    <div className="mb-1 flex items-center gap-2 text-[11px] text-muted-foreground">
+                      <span className="font-mono">{g.date}</span>
+                      <span className="rounded bg-accent/60 px-1.5 py-0.5 text-[11px] text-foreground">{g.stock}</span>
+                      <span className="text-[10px] opacity-70">{g.items.length}</span>
+                    </div>
+                    <div className="space-y-1.5 pl-1">
+                      {g.items.map(it => {
+                        const d = new Date(it.publish_time)
+                        const hm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+                        const title = it.title.replace(/^[^:：]+[:：]/, '')
+                        return (
+                          <a
+                            key={it.external_id}
+                            href={it.url || '#'}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="group flex items-start gap-2 text-[12px]"
+                          >
+                            <span className="shrink-0 font-mono text-[11px] text-muted-foreground">{hm === '00:00' ? '' : hm}</span>
+                            <span className="text-foreground group-hover:text-primary group-hover:underline">{title}</span>
+                          </a>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-4 flex items-center justify-center gap-3 text-[12px]">
+                <Button
+                  variant="outline" size="sm" className="h-7"
+                  onClick={() => setAnnouncementsPage(p => Math.max(1, p - 1))}
+                  disabled={announcementsPage <= 1}
+                >
+                  {stockT('stocksPage.messages.prevPage')}
+                </Button>
+                <span className="font-mono text-muted-foreground">
+                  {announcementsPage} / {pagedAnnouncementGroups.length}
+                </span>
+                <Button
+                  variant="outline" size="sm" className="h-7"
+                  onClick={() => setAnnouncementsPage(p => Math.min(pagedAnnouncementGroups.length, p + 1))}
+                  disabled={announcementsPage >= pagedAnnouncementGroups.length}
+                >
+                  {stockT('stocksPage.messages.nextPage')}
+                </Button>
+              </div>
+            </>
+          )}
+        </div>
       )}
 
       {/* Watchlist */}
