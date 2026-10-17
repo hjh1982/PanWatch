@@ -155,6 +155,14 @@ export const mergePortfolioQuotes = (
       }
     })
 
+    // 持仓按市值（人民币）从大到小；行情未到齐时回退到手动排序
+    positions.sort(
+      (a, b) =>
+        (b.market_value_cny ?? 0) - (a.market_value_cny ?? 0) ||
+        (a.sort_order ?? 0) - (b.sort_order ?? 0) ||
+        a.id - b.id
+    )
+
     const accPnl = accMarketValue - accCost
     const accPnlPct = accCost > 0 ? (accPnl / accCost * 100) : 0
     const accTotalAssets = accMarketValue + account.available_funds

@@ -731,6 +731,15 @@ def get_portfolio_summary(
             acc_pnl_pct = 0
             acc_total_assets = acc.available_funds
 
+        # 持仓按市值（人民币）从大到小排序；无行情时回退到手动排序
+        positions_data.sort(
+            key=lambda p: (
+                -(p["market_value_cny"] or 0),
+                p["sort_order"] or 0,
+                p["id"],
+            )
+        )
+
         account_summaries.append({
             "id": acc.id,
             "name": acc.name,
