@@ -26,6 +26,8 @@ router = APIRouter()
 # 汇率缓存
 _hkd_rate_cache: dict = {"rate": 0.92, "ts": 0}  # 港币默认汇率 0.92
 _usd_rate_cache: dict = {"rate": 7.25, "ts": 0}  # 美元默认汇率 7.25
+# 持仓事件日历缓存
+_calendar_cache: dict = {"ts": 0, "data": None}
 EXCHANGE_RATE_TTL = 3600  # 1 小时缓存
 
 
@@ -897,6 +899,66 @@ def _gather_holdings(db: Session) -> list[dict]:
                 seen[key] = h
                 out.append(h)
     return out
+
+
+@router.get("/portfolio/calendar")
+def portfolio_calendar(db: Session = Depends(get_db)):
+    """持仓未来事件日历：分红登记/除息、限售解禁、财报截止日（60 秒缓存）。"""
+    from src.modules.portfolio import upcoming_events as ue
+
+    global _calendar_cache
+    if _calendar_cache["ts"] and time.time() - _calendar_cache["ts"] < 60:
+        return _calendar_cache["data"]
+
+    # 汇总全部持仓（去重），按市场分组
+    summary = get_portfolio_summary(include_quotes=False,
+                                    refresh_exchange_rates=False, db=db)
+    cn_symbols: list[str] = []
+    hk_symbols: list[str] = []
+    name_map: dict[str, str] = {}
+    for acc in summary["accounts"]:
+        for pos in acc["positions"]:
+            symbol = pos["symbol"]
+            name_map[symbol] = pos["name"]
+            if pos["market"] == "CN" and symbol not in cn_symbols:
+                cn_symbols.append(symbol)
+            elif pos["market"] == "HK" and symbol not in hk_symbols:
+                hk_symbols.append(symbol)
+
+    today = datetime.now().date()
+    events: list[dict] = []
+    if cn_symbols:
+        events += ue.dividend_events(cn_symbols, name_map, today)
+        events += ue.lift_events(cn_symbols, name_map, today)
+        events += ue.disclosure_deadlines("CN", today)
+        # 个股财报预约披露日（仅 A 股个股，排除 ETF）
+        meta = [
+            (
+                s,
+                name_map.get(s, s),
+                ("SH" if s.startswith(("6", "9")) else "SZ") + s,
+            )
+            for s in cn_symbols
+            if s[0] in "036"
+        ]
+        events += ue.disclosure_events(meta, today)
+    if hk_symbols:
+        events += ue.disclosure_deadlines("HK", today)
+
+    # 同事件去重（类型+日期+代码+标题）
+    seen: set = set()
+    uniq: list[dict] = []
+    for ev in events:
+        key = (ev["date"], ev["type"], ev["symbol"], ev["title"])
+        if key in seen:
+            continue
+        seen.add(key)
+        uniq.append(ev)
+    uniq.sort(key=lambda e: (e["date"], e["type"], e["symbol"]))
+
+    data = {"events": uniq}
+    _calendar_cache = {"ts": time.time(), "data": data}
+    return data
 
 
 @router.get("/portfolio/diagnostics")
