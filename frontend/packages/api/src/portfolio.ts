@@ -73,3 +73,36 @@ export interface PortfolioAiReview {
   top?: AttributionItem[]
   worst?: AttributionItem[]
 }
+
+export interface PortfolioIntradayPoint {
+  time: string
+  market_value: number
+  total_assets: number
+}
+
+export interface PortfolioIntradayCurve {
+  empty?: boolean
+  reason?: string
+  session_date?: string | null
+  points?: PortfolioIntradayPoint[]
+  summary?: {
+    current_market_value: number
+    baseline_market_value: number
+    change: number
+    change_pct: number
+    high: number
+    high_time: string
+    low: number
+    low_time: string
+    cash: number
+  } | null
+  coverage?: {
+    positions: number
+    intraday: number
+    flat: string[]
+    markets: string[]
+  }
+  account_id?: number | null
+  currency?: string
+  refreshed_at?: string
+}

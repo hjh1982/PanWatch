@@ -840,6 +840,9 @@ def _fetch_quotes_for_stocks(stocks: list[Stock]) -> dict:
 # 持仓变动即失效(指纹变);失败/空结果不缓存,避免把瞬时故障冻住 10 分钟。
 _PORTFOLIO_RESULT_CACHE = TTLCache(default_ttl_sec=600.0)
 
+# 日内曲线每分钟都在变,缓存只用来压掉同页面多次刷新(30s 内复用)。
+_INTRADAY_CACHE = TTLCache(default_ttl_sec=30.0, max_size=64)
+
 
 def _holdings_signature(db: Session) -> str:
     """启用账户持仓的稳定指纹(stock_id + 合并后数量);仅查 DB,不拉行情/K 线。"""
@@ -855,9 +858,15 @@ def _holdings_signature(db: Session) -> str:
     return ";".join(f"{sid}:{agg[sid]:g}" for sid in sorted(agg))
 
 
-def _gather_holdings(db: Session) -> list[dict]:
-    """汇总所有启用账户的真实持仓为统一列表(CNY 市值/浮盈 + fx),多账户同股合并。"""
-    accounts = db.query(Account).filter(Account.enabled == True).all()  # noqa: E712
+def _gather_holdings(db: Session, account_id: int | None = None) -> list[dict]:
+    """汇总启用账户的真实持仓为统一列表(CNY 市值/浮盈 + fx),多账户同股合并。
+
+    ``account_id`` 传入时只看该账户;默认(不传)保持原行为:全部启用账户合并。
+    """
+    query = db.query(Account).filter(Account.enabled == True)  # noqa: E712
+    if account_id:
+        query = query.filter(Account.id == account_id)
+    accounts = query.all()
     stock_ids = {p.stock_id for acc in accounts for p in acc.positions}
     stocks = db.query(Stock).filter(Stock.id.in_(stock_ids)).all() if stock_ids else []
     stock_map = {s.id: s for s in stocks}
@@ -997,6 +1006,64 @@ def portfolio_benchmark(
         # 失败/数据不足不缓存,下轮可重试(由 K 线负缓存兜住打爆)
         return {"empty": True, "reason": "insufficient_data"}
     _PORTFOLIO_RESULT_CACHE.set(ckey, res)
+    return res
+
+
+@router.get("/portfolio/intraday-curve")
+def portfolio_intraday_curve(account_id: int | None = None, db: Session = Depends(get_db)):
+    """持仓日内市值曲线:当天逐分钟 Σ(持仓量 × 分时价 × 汇率)。
+
+    只描述**当天**盘中变化,不涉及历史重算;当日休市的标的(如港股假期)
+    按最新价恒定计入并由 ``coverage.flat`` 说明,不虚构日内波动。
+    """
+    from src.modules.portfolio.portfolio_intraday import build_intraday_curve
+    from src.platform.marketdata.collectors.intraday_collector import get_intraday_many
+
+    holdings = _gather_holdings(db, account_id)
+    if not holdings:
+        return {
+            "empty": True,
+            "reason": "no_holdings",
+            "session_date": None,
+            "points": [],
+            "summary": None,
+        }
+
+    cash_query = db.query(func.sum(Account.available_funds)).filter(
+        Account.enabled == True  # noqa: E712
+    )
+    if account_id:
+        cash_query = cash_query.filter(Account.id == account_id)
+    cash = float(cash_query.scalar() or 0.0)
+
+    symbols = [h["symbol"] for h in holdings]
+    ckey = (
+        "intraday:"
+        + "|".join(sorted(f"{h['market']}:{h['symbol']}" for h in holdings))
+        + f":{cash:.2f}:{account_id or 0}"
+    )
+    cached = _INTRADAY_CACHE.get(ckey)
+    if cached is not None:
+        return cached
+
+    series = get_intraday_many([(h["market"], h["symbol"]) for h in holdings])
+
+    # 昨收基准:批量行情(每市场一次),拿不到就退回该标的首个分时价。
+    stocks = db.query(Stock).filter(Stock.symbol.in_(symbols)).all() if symbols else []
+    quotes = _fetch_quotes_for_stocks(stocks) if stocks else {}
+    prev_close = {
+        (h["market"], h["symbol"]): (quotes.get(h["symbol"]) or {}).get("prev_close")
+        for h in holdings
+    }
+
+    res = build_intraday_curve(
+        holdings, series=series, prev_close=prev_close, cash=cash
+    )
+    if not res.get("empty"):
+        res["account_id"] = account_id
+        res["currency"] = "CNY"
+        res["refreshed_at"] = datetime.now(timezone.utc).isoformat()
+        _INTRADAY_CACHE.set(ckey, res)
     return res
 
 

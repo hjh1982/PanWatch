@@ -31,6 +31,8 @@ import { getCurrentLocale } from '@/i18n'
 import { browserTimezone } from '@panwatch/base-ui'
 import { applyMarketStatuses, mergePortfolioQuotes, toQuoteMap, type Position, type PortfolioSummary, type QuoteResponse, type DisplayQuote } from '@/lib/portfolio-quotes'
 import { MarketCalendarStatus, type MarketStatus } from '@/components/MarketCalendarStatus'
+import { PortfolioIntradayChart } from '@/components/PortfolioIntradayChart'
+import type { PortfolioIntradayCurve } from '@panwatch/api'
 import { marketSignTextClass } from '@/lib/market-colors'
 import { calcFeePreview } from '@/lib/trade-fees'
 import { parseAssistantPortfolioTarget } from '@/lib/assistant-navigation'
@@ -245,6 +247,12 @@ export default function StocksPage() {
   const [portfolioRaw, setPortfolioRaw] = useState<PortfolioSummary | null>(null)
   const [portfolioLoading, setPortfolioLoading] = useState(false)
   const [expandedAccounts, setExpandedAccounts] = useState<Set<number>>(new Set())
+
+  // 日内市值曲线(当天分钟级,与账户筛选联动)
+  const [intraday, setIntraday] = useState<PortfolioIntradayCurve | null>(null)
+  const [intradayLoading, setIntradayLoading] = useState(false)
+  const [intradayAccountId, setIntradayAccountId] = useState<number | null>(null)
+  const [intradayRefreshedAt, setIntradayRefreshedAt] = useState<Date | null>(null)
 
   // Quotes for all stocks (used in stock list)
   const [quotes, setQuotes] = useState<Record<string, DisplayQuote>>({})
@@ -750,6 +758,35 @@ export default function StocksPage() {
     initialLoadPromiseRef.current = run
     return run
   }, [refreshMarketStatus, requestKlineSummaries, requestPriceAlerts, requestQuotes, requestSuggestions])
+
+  // 日内市值曲线:分钟级数据每分钟变化,页面停留期间每 60s 自动刷新一次。
+  const intradayLoadedRef = useRef(false)
+  useEffect(() => {
+    let cancelled = false
+    const load = async () => {
+      if (!intradayLoadedRef.current) setIntradayLoading(true)
+      try {
+        const query = intradayAccountId ? `?account_id=${intradayAccountId}` : ''
+        const data = await fetchAPI<PortfolioIntradayCurve>(`/portfolio/intraday-curve${query}`, {
+          timeoutMs: 60000,
+        })
+        if (cancelled) return
+        setIntraday(data)
+        setIntradayRefreshedAt(new Date())
+        intradayLoadedRef.current = true
+      } catch (error) {
+        if (!cancelled) console.warn('加载日内市值曲线失败:', error)
+      } finally {
+        if (!cancelled) setIntradayLoading(false)
+      }
+    }
+    void load()
+    const timer = setInterval(() => { void load() }, 60_000)
+    return () => {
+      cancelled = true
+      clearInterval(timer)
+    }
+  }, [intradayAccountId])
 
   // Load all holding-stock announcements (eastmoney 公告源，30 天，上限 200 条)
   const loadHoldingAnnouncements = useCallback(async () => {
@@ -1837,6 +1874,68 @@ export default function StocksPage() {
           </div>
         </div>
       ) : null}
+
+      {/* 日内市值曲线 */}
+      <div className="card p-4 mb-6">
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <h2 className="text-sm font-semibold shrink-0">{stockT('stocksPage.intraday.title')}</h2>
+          {intraday?.session_date ? (
+            <span className="rounded bg-accent/60 px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
+              {intraday.session_date}
+            </span>
+          ) : null}
+          {intraday?.coverage && intraday.coverage.flat.length > 0 ? (
+            <span className="text-[11px] text-muted-foreground">
+              {stockT('stocksPage.intraday.flatHint', { count: intraday.coverage.flat.length })}
+            </span>
+          ) : null}
+          <div className="ml-auto flex items-center gap-2">
+            <Select
+              value={intradayAccountId ? String(intradayAccountId) : 'all'}
+              onValueChange={value => setIntradayAccountId(value === 'all' ? null : Number(value))}
+            >
+              <SelectTrigger
+                className="h-7 w-auto min-w-[92px] text-[11px]"
+                aria-label={stockT('stocksPage.intraday.account')}
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">{stockT('stocksPage.intraday.allAccounts')}</SelectItem>
+                {(portfolio?.accounts || []).map(account => (
+                  <SelectItem key={account.id} value={String(account.id)}>{account.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {intradayRefreshedAt ? (
+              <span className="font-mono text-[10px] text-muted-foreground">
+                {stockT('stocksPage.intraday.refreshed', {
+                  time: intradayRefreshedAt.toLocaleTimeString(getCurrentLocale(), {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  }),
+                })}
+              </span>
+            ) : null}
+          </div>
+        </div>
+
+        {intradayLoading && !intraday ? (
+          <div className="flex h-[220px] items-center justify-center text-sm text-muted-foreground">
+            {stockT('stocksPage.intraday.loading')}
+          </div>
+        ) : intraday?.empty ? (
+          <div className="flex h-[180px] items-center justify-center text-sm text-muted-foreground">
+            {stockT('stocksPage.intraday.empty')}
+          </div>
+        ) : (
+          <PortfolioIntradayChart
+            points={intraday?.points || []}
+            baseline={intraday?.summary?.baseline_market_value || 0}
+            emptyText={stockT('stocksPage.intraday.empty')}
+          />
+        )}
+      </div>
 
       {/* Tabs: Positions / Watchlist */}
       <div className="mb-4">
