@@ -71,6 +71,7 @@ md.health()                                     # {vendor: {success_rate, p50_la
 | `fundamentals` | `symbols, *, market=None` | `list[Fundamentals]` | 批量基本面/财务。跨市场自动分组,范式同 `quotes`。 |
 | `dragon_tiger` | `*, date=None, market="CN"` | `list[DragonTigerItem]` | 龙虎榜,**市场级**单日快照。`date` 未给出时不猜测"今天",直接返回 `[]`。 |
 | `margin` | `symbols, *, market=None` | `list[MarginItem]` | 批量融资融券(每只取最新一条快照)。 |
+| `margin_history` | `symbols, *, days=30, market=None, force=False` | `list[MarginItem]` | 批量融资融券日频历史(每只最近 `days` 条);`force=True` 跳过包内 TTL 缓存。 |
 | `shareholders` | `symbols, *, market=None` | `list[ShareholderItem]` | 批量股东户数(每只取最新一期)。 |
 | `dividend` | `symbols, *, market=None` | `list[DividendItem]` | 批量分红(每只返回全部历史)。 |
 | `northbound` | `*, market="CN"` | `list[NorthboundItem]` | 北向资金,**市场级**,取当日末值快照。 |
@@ -79,7 +80,7 @@ md.health()                                     # {vendor: {success_rate, p50_la
 | `hot_stocks` / `hot_boards` / `board_stocks` | 见下 | `list[HotStock/HotBoard]` | 东财热门榜。**市场级、不经 Engine**(非 symbol 模型),直连 `DiscoveryVendor`。`hot_stocks(*, market="CN", mode="turnover", limit=20, proxy=None)`、`hot_boards(*, market="CN", mode="gainers", limit=12, proxy=None)`、`board_stocks(*, board_code, mode="gainers", limit=20, proxy=None)`。 |
 | `health` | — | `dict[str, dict]` | 每个 vendor 的内存健康度快照(成功率 / p50 延迟 / 最近错误 / 样本数)。 |
 
-> `klines`/`capital_flow`/`events` **不在包内缓存**(`cache_ttl_sec=0`),缓存/节流交给宿主(PanWatch 的 collector 层有市场态感知缓存);`quotes` 有 5s 短 TTL 防抖;`flash_news` 30s、`fundamentals`/`dragon_tiger`/`margin`/`shareholders`/`dividend` 300s、`northbound` 60s(均为包内 Engine 层 TTL,详见 `client.py`)。
+> `klines`/`capital_flow`/`events` **不在包内缓存**(`cache_ttl_sec=0`),缓存/节流交给宿主(PanWatch 的 collector 层有市场态感知缓存);`quotes` 有 5s 短 TTL 防抖;`flash_news` 30s、`fundamentals`/`dragon_tiger`/`margin`/`margin_history`/`shareholders`/`dividend` 300s、`northbound` 60s(均为包内 Engine 层 TTL,详见 `client.py`)。
 
 ### 类型
 

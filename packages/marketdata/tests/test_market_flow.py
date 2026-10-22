@@ -207,6 +207,21 @@ class TestMargin:
         out = mf.EastmoneyMarginVendor().fetch([Symbol.parse("600519", market="CN")], {})
         assert out == []
 
+    def test_history_returns_all_rows_and_uses_requested_page_size(self, monkeypatch):
+        captured = {}
+
+        def fake_market_get(url, *, params=None, **kwargs):
+            captured["pageSize"] = params["pageSize"]
+            return _datacenter_payload([self._row("2026-07-16"), self._row("2026-07-15")])
+
+        monkeypatch.setattr(mf, "market_get", fake_market_get)
+        out = mf.EastmoneyMarginVendor().fetch(
+            [Symbol.parse("510300", market="CN")],
+            {"history": True, "days": 60},
+        )
+        assert [item.date for item in out] == ["2026-07-16", "2026-07-15"]
+        assert captured["pageSize"] == 60
+
 
 # ---------------------------------------------------------------------------
 # 股东户数(按 symbol)
@@ -372,6 +387,32 @@ class TestClientMethods:
         out = md.margin([Symbol.parse("600519", market="CN")])
         assert len(out) == 1 and isinstance(out[0], MarginItem)
         assert out[0].symbol == "600519" and out[0].rz_balance == 5000000000.0
+
+    def test_margin_history_via_engine(self, monkeypatch):
+        rows = [
+            {"DATE": "2026-07-16", "RZRQYE": 5080000000.0},
+            {"DATE": "2026-07-15", "RZRQYE": 5010000000.0},
+        ]
+        monkeypatch.setattr(mf, "market_get", lambda *a, **k: _datacenter_payload(rows))
+
+        md = MarketData(config=StaticConfigProvider({
+            "margin": [SourceConfig(vendor="eastmoney", priority=1)],
+        }))
+        out = md.margin_history([Symbol.parse("510300", market="CN")], days=2)
+        assert [item.date for item in out] == ["2026-07-16", "2026-07-15"]
+        assert out[1].total_balance == 5010000000.0
+
+    def test_margin_history_force_bypasses_cache(self, monkeypatch):
+        rows = [{"DATE": "2026-07-16", "RZRQYE": 5080000000.0}]
+        monkeypatch.setattr(mf, "market_get", lambda *a, **k: _datacenter_payload(rows))
+
+        md = MarketData(config=StaticConfigProvider({
+            "margin": [SourceConfig(vendor="eastmoney", priority=1)],
+        }))
+        assert len(md.margin_history(["510300"], days=5)) == 1
+        rows.append({"DATE": "2026-07-15", "RZRQYE": 5010000000.0})
+        assert len(md.margin_history(["510300"], days=5)) == 1
+        assert len(md.margin_history(["510300"], days=5, force=True)) == 2
 
     def test_shareholders_via_single_source_engine(self, monkeypatch):
         row = {

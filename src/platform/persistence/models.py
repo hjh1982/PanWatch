@@ -1505,3 +1505,31 @@ class MCPCallLog(Base):
     duration_ms = Column(Integer, default=0)
     client_ip = Column(String, nullable=True)
     called_at = Column(DateTime, server_default=func.now())
+
+
+class EtfShareSnapshot(Base):
+    """SSE 披露的单只 ETF 基金份额（清算后，单位：亿份）。"""
+
+    __tablename__ = "etf_share_snapshots"
+    __table_args__ = (
+        UniqueConstraint("trade_date", "code", name="uq_etf_share_date_code"),
+        Index("ix_etf_share_snapshots_trade_date", "trade_date"),
+        Index("ix_etf_share_code_date", "code", "trade_date"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    trade_date = Column(String(10), nullable=False)
+    code = Column(String(16), nullable=False)
+    name = Column(String)
+    shares_yi = Column(Float, nullable=False)
+    fetched_at = Column(DateTime, server_default=func.now())
+
+
+class EtfShareTradeDay(Base):
+    """记录已向 SSE 请求过的交易日及其返回总行数，避免重复请求休市日。"""
+
+    __tablename__ = "etf_share_trade_days"
+
+    trade_date = Column(String(10), primary_key=True)
+    total = Column(Integer)
+    fetched_at = Column(DateTime, server_default=func.now())

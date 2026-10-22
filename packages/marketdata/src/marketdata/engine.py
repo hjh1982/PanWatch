@@ -31,9 +31,16 @@ class Engine:
         self.cache = cache
         self.default_ttl = default_ttl
 
-    def fetch(self, req: Request, *, cache_ttl_sec: float | None = None, min_count: int = 1) -> Response:
+    def fetch(
+        self,
+        req: Request,
+        *,
+        cache_ttl_sec: float | None = None,
+        min_count: int = 1,
+        use_cache: bool = True,
+    ) -> Response:
         key = req.cache_key(self.datatype)
-        cached = self.cache.get(key)
+        cached = self.cache.get(key) if use_cache else None
         if cached is not None:
             return cached
 

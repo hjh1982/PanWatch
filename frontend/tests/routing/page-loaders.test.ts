@@ -8,6 +8,7 @@ describe('route page loaders', () => {
       'login',
       'dashboard',
       'stocks',
+      'etfShares',
       'opportunities',
       'paperTrading',
       'assistant',
@@ -24,6 +25,10 @@ describe('route page loaders', () => {
   it('resolves both assistant routes to the same page loader', () => {
     expect(resolveRouteKey('/assistant')).toBe('assistant')
     expect(resolveRouteKey('/assistant/123')).toBe('assistant')
+  })
+
+  it('resolves the ETF shares route', () => {
+    expect(resolveRouteKey('/etf-shares')).toBe('etfShares')
   })
 
   it('does not preload an unknown route', () => {

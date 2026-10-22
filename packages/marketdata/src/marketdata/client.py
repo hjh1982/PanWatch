@@ -339,6 +339,36 @@ class MarketData:
                 out.extend(resp.data)
         return out
 
+    def margin_history(
+        self,
+        symbols: list[str | Symbol],
+        *,
+        days: int = 30,
+        market: str | None = None,
+        force: bool = False,
+    ) -> list[MarginItem]:
+        """批量融资融券日频历史(每只返回最近 days 条,按数据源倒序)。
+
+        force=True 跳过包内 TTL 缓存,用于用户手动刷新。
+        """
+        groups: dict[str, list[Symbol]] = {}
+        for raw in symbols:
+            sym = raw if isinstance(raw, Symbol) else Symbol.parse(raw, market)
+            groups.setdefault(sym.market.value, []).append(sym)
+
+        out: list[MarginItem] = []
+        for mkt, syms in groups.items():
+            req = Request(
+                symbols=tuple(s.code for s in syms),
+                market=mkt,
+                limit=max(1, days),
+                extra=(("history", True),),
+            )
+            resp = self._margin_engine.fetch(req, use_cache=not force)
+            if resp.ok and resp.data:
+                out.extend(resp.data)
+        return out
+
     def shareholders(self, symbols: list[str | Symbol], *, market: str | None = None) -> list[ShareholderItem]:
         """批量股东户数(按 symbol,取每只最新一期)。照 fundamentals() 分组范式。"""
         groups: dict[str, list[Symbol]] = {}

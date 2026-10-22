@@ -131,35 +131,43 @@ _REPORT_MARGIN = "RPTA_WEB_RZRQ_GGMX"
 
 
 class EastmoneyMarginVendor(MarginVendor):
-    """融资融券:按 symbol 逐只请求近期明细,取最新一条(sortTypes=-1 已降序 → data[0])。"""
+    """融资融券:按 symbol 逐只请求近期明细。
+
+    默认只保留最新一条(sortTypes=-1 已降序 → data[0]);
+    config["history"] 为真时返回最近 config["days"] 条日频记录。
+    """
 
     name = "eastmoney"
     supports_markets = {"CN"}
 
+    @staticmethod
+    def _to_item(symbol: str, row: dict) -> MarginItem:
+        return MarginItem(
+            date=str(row.get("DATE") or "")[:10],
+            symbol=symbol,
+            rz_balance=_to_float(row.get("RZYE")),
+            rz_buy=_to_float(row.get("RZMRE")),
+            rz_repay=_to_float(row.get("RZCHE")),
+            rq_balance=_to_float(row.get("RQYE")),
+            rq_sell_vol=_to_float(row.get("RQMCL")),
+            rq_repay_vol=_to_float(row.get("RQCHL")),
+            total_balance=_to_float(row.get("RZRQYE")),
+        )
+
     def fetch(self, symbols: list[Symbol], config: dict) -> list[MarginItem]:
         if not symbols:
             return []
+        cfg = config or {}
+        history = bool(cfg.get("history"))
+        days = _to_int(cfg.get("days")) or 30
+        page_size = max(1, min(days, 500)) if history else 30
         out: list[MarginItem] = []
         for sym in symbols:
             try:
                 filter_str = f'(SCODE="{sym.code}")'
-                rows = _datacenter_get(_REPORT_MARGIN, filter_str, "DATE", page_size=30)
-                if not rows:
-                    continue
-                row = rows[0]
-                out.append(
-                    MarginItem(
-                        date=str(row.get("DATE") or "")[:10],
-                        symbol=sym.code,
-                        rz_balance=_to_float(row.get("RZYE")),
-                        rz_buy=_to_float(row.get("RZMRE")),
-                        rz_repay=_to_float(row.get("RZCHE")),
-                        rq_balance=_to_float(row.get("RQYE")),
-                        rq_sell_vol=_to_float(row.get("RQMCL")),
-                        rq_repay_vol=_to_float(row.get("RQCHL")),
-                        total_balance=_to_float(row.get("RZRQYE")),
-                    )
-                )
+                rows = _datacenter_get(_REPORT_MARGIN, filter_str, "DATE", page_size=page_size)
+                for row in rows if history else rows[:1]:
+                    out.append(self._to_item(sym.code, row))
             except Exception as e:
                 logger.debug(f"东财融资融券取数异常 symbol={sym.code}: {e}")
                 continue

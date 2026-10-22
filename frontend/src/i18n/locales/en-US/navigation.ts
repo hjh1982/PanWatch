@@ -5,6 +5,7 @@ export const navigation = {
   items: {
     home: 'Home',
     portfolio: 'Portfolio',
+    etfShares: 'ETF shares',
     opportunities: 'Opportunities',
     paperTrading: 'Paper trading',
     assistant: 'Assistant',

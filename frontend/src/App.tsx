@@ -1,6 +1,6 @@
 import { Suspense, useState, useEffect, useRef } from 'react'
 import { Routes, Route, NavLink, useLocation, Navigate } from 'react-router-dom'
-import { TrendingUp, Bot, ScrollText, Settings, List, Database, Clock, LayoutDashboard, Github, BellRing, Sparkles, Activity, ClipboardCheck, MessageCircle } from 'lucide-react'
+import { TrendingUp, Bot, ScrollText, Settings, List, Database, Clock, LayoutDashboard, Github, BellRing, Sparkles, Activity, ClipboardCheck, MessageCircle, AreaChart } from 'lucide-react'
 import { useTheme } from '@/hooks/use-theme'
 import { appApi } from '@panwatch/api/app'
 import { fetchAPI, isAuthenticated } from '@panwatch/api/client'
@@ -22,6 +22,7 @@ const {
   DashboardPage,
   OpportunitiesPage,
   StocksPage,
+  EtfSharesPage,
   AgentsPage,
   SettingsPage,
   DataSourcesPage,
@@ -36,6 +37,7 @@ const {
 const NAV_ITEMS: Array<{ to: string; icon: typeof LayoutDashboard; labelKey: NavigationItemKey }> = [
   { to: '/', icon: LayoutDashboard, labelKey: 'home' },
   { to: '/portfolio', icon: List, labelKey: 'portfolio' },
+  { to: '/etf-shares', icon: AreaChart, labelKey: 'etfShares' },
   { to: '/assistant', icon: MessageCircle, labelKey: 'assistant' },
   { to: '/opportunities', icon: Sparkles, labelKey: 'opportunities' },
   { to: '/paper-trading', icon: Activity, labelKey: 'paperTrading' },
@@ -95,10 +97,10 @@ function App() {
     icon: item.icon,
     label: t(`navigation:items.${item.labelKey}`),
   }))
-  const desktopPrimaryNavItems = navItems.slice(0, 5)
-  const desktopMoreNavItems = navItems.slice(5)
-  const mobilePrimaryNavItems = navItems.slice(0, 5)
-  const mobileMoreNavItems = navItems.slice(5)
+  const desktopPrimaryNavItems = navItems.slice(0, 6)
+  const desktopMoreNavItems = navItems.slice(6)
+  const mobilePrimaryNavItems = navItems.slice(0, 6)
+  const mobileMoreNavItems = navItems.slice(6)
 
   useEffect(() => {
     appApi.version()
@@ -162,7 +164,7 @@ function App() {
             </NavLink>
 
             {/* Nav Links */}
-            <nav className="flex items-center gap-1">
+            <nav className="flex items-center gap-0.5 lg:gap-1">
               {desktopPrimaryNavItems.map(({ to, icon: Icon, label }) => {
                 const isActive = to === '/' ? location.pathname === '/' : location.pathname.startsWith(to)
                 return (
@@ -181,13 +183,13 @@ function App() {
                       }`}
                     />
                     <span
-                      className={`relative px-3.5 py-2 rounded-xl text-[13px] font-medium transition-all flex items-center gap-1.5 ${
+                      className={`relative px-1.5 py-2 rounded-xl text-[12px] font-medium transition-all flex items-center gap-1 whitespace-nowrap lg:px-3.5 lg:text-[13px] lg:gap-1.5 ${
                         isActive
                           ? 'text-foreground'
                           : 'text-muted-foreground hover:text-foreground hover:bg-accent'
                       }`}
                     >
-                      <Icon className={`w-4 h-4 ${isActive ? 'text-primary' : ''}`} />
+                      <Icon className={`w-3.5 h-3.5 lg:w-4 lg:h-4 ${isActive ? 'text-primary' : ''}`} />
                       {label}
                     </span>
                   </NavLink>
@@ -273,7 +275,7 @@ function App() {
                 to={to}
                 onMouseEnter={() => preloadRoute(to)}
                 onFocus={() => preloadRoute(to)}
-                className={`flex flex-col items-center justify-center gap-0.5 px-2 py-1.5 rounded-xl transition-all min-w-[56px] ${
+                className={`flex flex-1 min-w-0 flex-col items-center justify-center gap-0.5 px-1 py-1.5 rounded-xl transition-all ${
                   isActive
                     ? 'text-primary bg-primary/8 ring-1 ring-primary/15'
                     : 'text-muted-foreground hover:bg-accent/30'
@@ -300,6 +302,7 @@ function App() {
               <Route path="/" element={<DashboardPage />} />
               <Route path="/opportunities" element={<OpportunitiesPage />} />
               <Route path="/portfolio" element={<StocksPage />} />
+              <Route path="/etf-shares" element={<EtfSharesPage />} />
               <Route path="/agents" element={<AgentsPage />} />
               <Route path="/evaluations" element={<EvaluationsPage />} />
               <Route path="/history" element={<HistoryPage />} />
