@@ -1,4 +1,4 @@
-"""ETF 份额、融资融券与煤炭价格 API：目录、曲线与手动刷新。"""
+"""ETF 份额、融资融券、煤炭与电解铝价格 API：目录、曲线与手动刷新。"""
 
 import asyncio
 import logging
@@ -7,7 +7,13 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from src.modules.market import coal_price_service, etf_share_service, margin_service
+from src.modules.market import (
+    aluminum_inventory_service,
+    aluminum_service,
+    coal_price_service,
+    etf_share_service,
+    margin_service,
+)
 from src.modules.market.etf_share_service import catalog_payload
 from src.platform.persistence.database import get_db
 from src.web.errors import api_error
@@ -33,6 +39,12 @@ def _load_curve(
         return margin_service.get_curve_payload(group, days, force=force)
     if group == coal_price_service.COAL_GROUP_ID:
         return coal_price_service.get_curve_payload(
+            db, group, days, force=force, full=full
+        )
+    if group == aluminum_service.ALUMINUM_GROUP_ID:
+        return aluminum_service.get_curve_payload(db, group, days, force=force)
+    if group == aluminum_inventory_service.ALUMINUM_INVENTORY_GROUP_ID:
+        return aluminum_inventory_service.get_curve_payload(
             db, group, days, force=force, full=full
         )
     return etf_share_service.get_curve_payload(db, group, days, force=force)

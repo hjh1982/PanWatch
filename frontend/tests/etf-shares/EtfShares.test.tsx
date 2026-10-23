@@ -59,8 +59,24 @@ const catalog = {
       id: 'aluminum',
       label: '电解铝·氧化铝',
       category: 'commodity',
-      available: false,
+      available: true,
       accent: '#f97316',
+      funds: [],
+    },
+    {
+      id: 'aluminumInventory',
+      label: '铝锭库存',
+      category: 'commodity',
+      available: true,
+      accent: '#f59e0b',
+      funds: [],
+    },
+    {
+      id: 'goldReserves',
+      label: '黄金储备',
+      category: 'commodity',
+      available: false,
+      accent: '#eab308',
       funds: [],
     },
   ],
@@ -136,6 +152,83 @@ const coalCurve = {
   },
 }
 
+const aluminumCurve = {
+  group: 'aluminum',
+  group_label: '电解铝·氧化铝',
+  scope: 'A00铝 · 氧化铝(山西)',
+  as_of: '2026-10-22',
+  dates: ['2026-10-20', '2026-10-21', '2026-10-22'],
+  metrics: [
+    {
+      id: 'a00_avg',
+      latest: 23710,
+      latest_date: '2026-10-22',
+      delta: 10,
+      delta_pct: 0.0422,
+    },
+    {
+      id: 'alumina_avg',
+      latest: 2730,
+      latest_date: '2026-10-22',
+      delta: -5,
+      delta_pct: -0.1828,
+    },
+    {
+      id: 'spread',
+      latest: 20980,
+      latest_date: '2026-10-22',
+      delta: 15,
+      delta_pct: 0.0716,
+    },
+  ],
+  series: {
+    a00_avg: [23680, 23700, 23710],
+    a00_low: [23580, 23600, 23620],
+    a00_high: [23780, 23800, 23810],
+    alumina_avg: [2740, 2735, 2730],
+    spread: [20940, 20965, 20980],
+  },
+  coverage: { trading_days: 3, target: 3, complete: true },
+}
+
+const inventoryCurve = {
+  group: 'aluminumInventory',
+  group_label: '铝锭库存',
+  scope: 'Mysteel · 社会库存与厂内库存',
+  as_of: '2026-10-22',
+  dates: ['2026-10-15', '2026-10-19', '2026-10-22'],
+  metrics: [
+    {
+      id: 'social',
+      latest: 53.1,
+      latest_date: '2026-10-22',
+      delta: -3.5,
+      delta_pct: -6.183,
+    },
+    {
+      id: 'factory',
+      latest: 7.7,
+      latest_date: '2026-10-22',
+      delta: -1.4,
+      delta_pct: -15.385,
+    },
+    {
+      id: 'total',
+      latest: 60.8,
+      latest_date: '2026-10-22',
+      delta: -4.9,
+      delta_pct: -7.458,
+    },
+  ],
+  series: {
+    social: [58.6, 56.6, 53.1],
+    factory: [9.1, null, 7.7],
+    total: [67.7, 65.7, 60.8],
+    social_change: [null, -2.0, -3.5],
+  },
+  coverage: { trading_days: 3, target: 3, complete: true },
+}
+
 const marginCurve = {
   group: 'margin',
   group_label: '融资融券',
@@ -209,6 +302,10 @@ beforeEach(() => {
     }
     if (path.includes('/curve?group=zz500')) return Promise.resolve(zz500Curve)
     if (path.includes('/curve?group=margin')) return Promise.resolve(marginCurve)
+    if (path.includes('/curve?group=aluminumInventory')) {
+      return Promise.resolve(inventoryCurve)
+    }
+    if (path.includes('/curve?group=aluminum')) return Promise.resolve(aluminumCurve)
     if (path.includes('/curve?group=coalPrice')) return Promise.resolve(coalCurve)
     if (path.includes('/refresh')) return Promise.resolve(hs300Curve)
     return Promise.resolve(hs300Curve)
@@ -468,7 +565,7 @@ describe('ETF share tracker page', () => {
     ).toBe(false)
   })
 
-  it('renders a planned group without requesting share data', async () => {
+  it('renders the aluminum and alumina price dashboard', async () => {
     const user = userEvent.setup()
     render(<EtfSharesPage />)
     await screen.findAllByText('沪深300ETF华泰柏瑞')
@@ -476,11 +573,76 @@ describe('ETF share tracker page', () => {
     const entries = screen.getAllByRole('button', { name: '电解铝·氧化铝' })
     await user.click(entries[0])
 
+    expect(
+      await screen.findByRole('heading', { name: '电解铝 & 氧化铝 · 现货价格' }),
+    ).toBeTruthy()
+    for (const label of ['A00 铝均价', '氧化铝均价', '铝-氧化铝价差']) {
+      expect(screen.getAllByText(label).length).toBeGreaterThan(0)
+    }
+    expect(screen.getAllByText('23710').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('2730').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('20980').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('元/吨').length).toBeGreaterThan(0)
+    expect(
+      screen.getByRole('img', { name: 'A00 铝价格走势（元/吨）' }),
+    ).toBeTruthy()
+    expect(
+      screen.getByRole('img', { name: '氧化铝(山西)价格走势（元/吨）' }),
+    ).toBeTruthy()
+    expect(screen.getByRole('img', { name: '电解铝 vs 氧化铝价差' })).toBeTruthy()
+    expect(screen.getByRole('img', { name: '价格对比（近20日）' })).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: '每日份额变化量' })).toBeNull()
+    expect(
+      vi.mocked(fetchAPI).mock.calls.some((call) =>
+        String(call[0]).includes('group=aluminum'),
+      ),
+    ).toBe(true)
+  })
+
+  it('renders the aluminum inventory dashboard with full history', async () => {
+    const user = userEvent.setup()
+    render(<EtfSharesPage />)
+    await screen.findAllByText('沪深300ETF华泰柏瑞')
+
+    const entries = screen.getAllByRole('button', { name: '铝锭库存' })
+    await user.click(entries[0])
+
+    expect(
+      await screen.findByRole('heading', { name: '铝锭库存 · 社会与厂内' }),
+    ).toBeTruthy()
+    for (const label of ['社会库存', '厂内库存', '库存合计']) {
+      expect(screen.getAllByText(label).length).toBeGreaterThan(0)
+    }
+    expect(screen.getAllByText('53.1').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('7.7').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('60.8').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('万吨').length).toBeGreaterThan(0)
+    expect(
+      screen.getByRole('img', { name: '电解铝社会库存走势' }),
+    ).toBeTruthy()
+    expect(screen.getByRole('img', { name: '铝厂厂内库存走势' })).toBeTruthy()
+    expect(screen.getByRole('img', { name: '社会库存每期变化' })).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: '每日份额变化量' })).toBeNull()
+    expect(
+      vi.mocked(fetchAPI).mock.calls.some((call) =>
+        String(call[0]).includes('group=aluminumInventory&days=90&full=1'),
+      ),
+    ).toBe(true)
+  })
+
+  it('renders a planned group without requesting share data', async () => {
+    const user = userEvent.setup()
+    render(<EtfSharesPage />)
+    await screen.findAllByText('沪深300ETF华泰柏瑞')
+
+    const entries = screen.getAllByRole('button', { name: '黄金储备' })
+    await user.click(entries[0])
+
     expect(await screen.findByText(/该分组的数据源尚未接入/)).toBeTruthy()
     expect(screen.getAllByText('待接入').length).toBeGreaterThan(0)
     expect(screen.queryByRole('button', { name: /刷新数据/ })).toBeNull()
     expect(
-      vi.mocked(fetchAPI).mock.calls.some((call) => String(call[0]).includes('group=aluminum')),
+      vi.mocked(fetchAPI).mock.calls.some((call) => String(call[0]).includes('group=goldReserves')),
     ).toBe(false)
   })
 

@@ -169,6 +169,31 @@ const COAL_METRIC_COLORS: Record<string, string> = {
 const COAL_METRIC_KEYS = {
   cci_5500: 'etfShares.coal.metrics.cci_5500',
 } as const
+const ALUMINUM_METRIC_COLORS: Record<string, string> = {
+  a00_avg: '#e5484d',
+  alumina_avg: '#0ea5e9',
+  spread: '#f97316',
+}
+const ALUMINUM_METRIC_KEYS = {
+  a00_avg: 'etfShares.aluminum.metrics.a00_avg',
+  alumina_avg: 'etfShares.aluminum.metrics.alumina_avg',
+  spread: 'etfShares.aluminum.metrics.spread',
+} as const
+const ALUMINUM_A00_COLORS = {
+  avg: '#e5484d',
+  low: '#94a3b8',
+  high: '#f59e0b',
+}
+const ALUMINUM_INVENTORY_METRIC_COLORS: Record<string, string> = {
+  social: '#0ea5e9',
+  factory: '#f59e0b',
+  total: '#059669',
+}
+const ALUMINUM_INVENTORY_METRIC_KEYS = {
+  social: 'etfShares.aluminumInventory.metrics.social',
+  factory: 'etfShares.aluminumInventory.metrics.factory',
+  total: 'etfShares.aluminumInventory.metrics.total',
+} as const
 const YEAR_COLORS = ['#94a3b8', '#8b5cf6', '#3b82f6', '#f59e0b', '#059669']
 const GROUP_LABEL_KEYS = {
   hs300: 'etfShares.groups.hs300',
@@ -177,10 +202,6 @@ const GROUP_LABEL_KEYS = {
   coalPrice: 'etfShares.groups.coalPrice',
   aluminum: 'etfShares.groups.aluminum',
   aluminumInventory: 'etfShares.groups.aluminumInventory',
-  copperPrice: 'etfShares.groups.copperPrice',
-  copperInventory: 'etfShares.groups.copperInventory',
-  lithiumSpot: 'etfShares.groups.lithiumSpot',
-  lithiumWarrant: 'etfShares.groups.lithiumWarrant',
   goldReserves: 'etfShares.groups.goldReserves',
   scfi: 'etfShares.groups.scfi',
   hydropower: 'etfShares.groups.hydropower',
@@ -1379,6 +1400,826 @@ function MarginDashboard({ data }: { data: MetricsPayload }) {
   )
 }
 
+function PriceSpreadChart({
+  dates,
+  values,
+  emptyText,
+  unitLabel,
+  valueUnit,
+  ariaLabel,
+}: {
+  dates: string[]
+  values: Array<number | null>
+  emptyText: string
+  unitLabel: string
+  valueUnit: string
+  ariaLabel: string
+}) {
+  const [hoverIndex, setHoverIndex] = useState<number | null>(null)
+  const model = useMemo(() => {
+    if (dates.length === 0) return null
+    const scale = buildZeroScale(values, 5)
+    if (!scale) return null
+    const innerWidth = DETAIL_WIDTH - DETAIL_PADDING.left - DETAIL_PADDING.right
+    const innerHeight = DETAIL_HEIGHT - DETAIL_PADDING.top - DETAIL_PADDING.bottom
+    const span = scale.max - scale.min || 1
+    const slot = innerWidth / dates.length
+    const barWidth = Math.max(1.5, Math.min(10, slot * 0.62))
+    const xOf = (index: number) => DETAIL_PADDING.left + slot * (index + 0.5)
+    const yOf = (value: number) =>
+      DETAIL_PADDING.top + innerHeight - ((value - scale.min) / span) * innerHeight
+    const yZero = yOf(0)
+    const bars = values.flatMap((value, index) => {
+      if (typeof value !== 'number' || !Number.isFinite(value)) return []
+      const y = yOf(value)
+      return [
+        {
+          index,
+          x: xOf(index) - barWidth / 2,
+          y: Math.min(y, yZero),
+          height: Math.max(1, Math.abs(y - yZero)),
+          width: barWidth,
+          value,
+        },
+      ]
+    })
+    const xTicks = pickTickIndexes(dates.length, 6).map((index, position, all) => {
+      const anchor: 'start' | 'middle' | 'end' =
+        position === 0 ? 'start' : position === all.length - 1 ? 'end' : 'middle'
+      return { x: xOf(index), label: dates[index].slice(5), anchor }
+    })
+    return { scale, yOf, yZero, bars, xTicks, slot }
+  }, [dates, values])
+
+  if (!model) {
+    return (
+      <div className="h-[200px] flex items-center justify-center text-[13px] text-muted-foreground">
+        {emptyText}
+      </div>
+    )
+  }
+
+  const handlePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect()
+    if (!rect.width || dates.length === 0) return
+    const svgX = ((event.clientX - rect.left) / rect.width) * DETAIL_WIDTH
+    const innerWidth = DETAIL_WIDTH - DETAIL_PADDING.left - DETAIL_PADDING.right
+    if (svgX < DETAIL_PADDING.left - 8 || svgX > DETAIL_PADDING.left + innerWidth + 8) {
+      setHoverIndex(null)
+      return
+    }
+    const ratio = Math.min(1, Math.max(0, (svgX - DETAIL_PADDING.left) / innerWidth))
+    setHoverIndex(Math.min(dates.length - 1, Math.floor(ratio * dates.length)))
+  }
+
+  const hoverValue = hoverIndex == null ? null : values[hoverIndex]
+  const hoverX =
+    hoverIndex == null ? null : DETAIL_PADDING.left + model.slot * (hoverIndex + 0.5)
+  const tooltipLeft = hoverX == null ? 0 : (hoverX / DETAIL_WIDTH) * 100
+  const alignLeft = hoverX != null && hoverX > DETAIL_WIDTH * 0.62
+
+  return (
+    <div
+      className="relative"
+      onPointerMove={handlePointerMove}
+      onPointerLeave={() => setHoverIndex(null)}
+    >
+      <svg
+        viewBox={`0 0 ${DETAIL_WIDTH} ${DETAIL_HEIGHT}`}
+        className="w-full h-auto select-none"
+        role="img"
+        aria-label={ariaLabel}
+      >
+        {model.scale.ticks.map((tick) => (
+          <g key={tick}>
+            <line
+              x1={DETAIL_PADDING.left}
+              x2={DETAIL_WIDTH - DETAIL_PADDING.right}
+              y1={model.yOf(tick)}
+              y2={model.yOf(tick)}
+              stroke="hsl(var(--border))"
+              strokeWidth={0.5}
+              strokeDasharray="2 4"
+            />
+            <text
+              x={DETAIL_PADDING.left - 8}
+              y={model.yOf(tick) + 3.5}
+              textAnchor="end"
+              fill="hsl(var(--muted-foreground))"
+              fontSize={10}
+            >
+              {tickLabel(tick, model.scale.step)}
+            </text>
+          </g>
+        ))}
+        <line
+          x1={DETAIL_PADDING.left}
+          x2={DETAIL_WIDTH - DETAIL_PADDING.right}
+          y1={model.yZero}
+          y2={model.yZero}
+          stroke="hsl(var(--border))"
+          strokeWidth={0.9}
+        />
+        <text
+          x={4}
+          y={10}
+          textAnchor="start"
+          fill="hsl(var(--muted-foreground))"
+          fontSize={9}
+        >
+          {unitLabel}
+        </text>
+        {model.bars.map((bar) => (
+          <rect
+            key={bar.index}
+            x={bar.x}
+            y={bar.y}
+            width={bar.width}
+            height={bar.height}
+            rx={1}
+            fill={
+              bar.value >= 0 ? 'hsl(var(--market-up))' : 'hsl(var(--market-down))'
+            }
+            opacity={hoverIndex == null || hoverIndex === bar.index ? 0.9 : 0.5}
+          />
+        ))}
+        {model.xTicks.map((tick) => (
+          <text
+            key={`${tick.label}-${tick.x}`}
+            x={tick.x}
+            y={DETAIL_HEIGHT - 10}
+            textAnchor={tick.anchor}
+            fill="hsl(var(--muted-foreground))"
+            fontSize={10}
+          >
+            {tick.label}
+          </text>
+        ))}
+        {hoverX != null && (
+          <line
+            x1={hoverX}
+            x2={hoverX}
+            y1={DETAIL_PADDING.top}
+            y2={DETAIL_HEIGHT - DETAIL_PADDING.bottom}
+            stroke="hsl(var(--muted-foreground))"
+            strokeWidth={0.8}
+            strokeDasharray="3 3"
+            opacity={0.6}
+          />
+        )}
+      </svg>
+      {hoverIndex != null && (
+        <div
+          className="pointer-events-none absolute top-1 z-10 min-w-[150px] rounded-md border border-border bg-popover px-2.5 py-2 shadow-sm"
+          style={{
+            left: `${tooltipLeft}%`,
+            transform: alignLeft ? 'translateX(-100%)' : 'translateX(0)',
+          }}
+        >
+          <div className="font-mono text-[11px] text-muted-foreground">{dates[hoverIndex]}</div>
+          <div className={`mt-1 font-mono text-[11px] font-medium ${marketSignTextClass(hoverValue)}`}>
+            {formatValue(hoverValue, 0)}
+            {valueUnit ? ` ${valueUnit}` : ''}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+const DUAL_PADDING = { top: 26, right: 58, bottom: 30, left: 58 }
+
+function DualAxisChart({
+  dates,
+  leftValues,
+  rightValues,
+  leftLabel,
+  rightLabel,
+  leftColor,
+  rightColor,
+  emptyText,
+  valueUnit,
+  ariaLabel,
+}: {
+  dates: string[]
+  leftValues: Array<number | null>
+  rightValues: Array<number | null>
+  leftLabel: string
+  rightLabel: string
+  leftColor: string
+  rightColor: string
+  emptyText: string
+  valueUnit: string
+  ariaLabel: string
+}) {
+  const [hoverIndex, setHoverIndex] = useState<number | null>(null)
+  const model = useMemo(() => {
+    if (dates.length === 0) return null
+    const leftScale = buildScale(leftValues, 5)
+    const rightScale = buildScale(rightValues, 5)
+    if (!leftScale || !rightScale) return null
+    const innerWidth = CHART_WIDTH - DUAL_PADDING.left - DUAL_PADDING.right
+    const innerHeight = CHART_HEIGHT - DUAL_PADDING.top - DUAL_PADDING.bottom
+    const leftSpan = leftScale.max - leftScale.min || 1
+    const rightSpan = rightScale.max - rightScale.min || 1
+    const xOf = (index: number) =>
+      dates.length === 1
+        ? DUAL_PADDING.left + innerWidth / 2
+        : DUAL_PADDING.left + (index / (dates.length - 1)) * innerWidth
+    const yLeft = (value: number) =>
+      DUAL_PADDING.top + innerHeight - ((value - leftScale.min) / leftSpan) * innerHeight
+    const yRight = (value: number) =>
+      DUAL_PADDING.top + innerHeight - ((value - rightScale.min) / rightSpan) * innerHeight
+    const pathFor = (
+      segments: Array<Array<{ index: number; value: number }>>,
+      yOf: (value: number) => number,
+    ) =>
+      segments.map((segment) =>
+        segment
+          .map((point, index) => {
+            const command = index === 0 ? 'M' : 'L'
+            return `${command}${xOf(point.index).toFixed(2)},${yOf(point.value).toFixed(2)}`
+          })
+          .join(' '),
+      )
+    const leftPaths = pathFor(buildSegments(leftValues), yLeft)
+    const rightPaths = pathFor(buildSegments(rightValues), yRight)
+    const xTicks = pickTickIndexes(dates.length, 7).map((index, position, all) => {
+      const anchor: 'start' | 'middle' | 'end' =
+        position === 0 ? 'start' : position === all.length - 1 ? 'end' : 'middle'
+      return { x: xOf(index), label: dates[index].slice(5), anchor }
+    })
+    return {
+      leftScale,
+      rightScale,
+      yLeft,
+      yRight,
+      xOf,
+      leftPaths,
+      rightPaths,
+      xTicks,
+    }
+  }, [dates, leftValues, rightValues])
+
+  if (!model) {
+    return (
+      <div className="h-[220px] flex items-center justify-center text-[13px] text-muted-foreground">
+        {emptyText}
+      </div>
+    )
+  }
+
+  const handlePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect()
+    if (!rect.width || dates.length === 0) return
+    const svgX = ((event.clientX - rect.left) / rect.width) * CHART_WIDTH
+    const innerWidth = CHART_WIDTH - DUAL_PADDING.left - DUAL_PADDING.right
+    if (svgX < DUAL_PADDING.left - 8 || svgX > DUAL_PADDING.left + innerWidth + 8) {
+      setHoverIndex(null)
+      return
+    }
+    const ratio = Math.min(1, Math.max(0, (svgX - DUAL_PADDING.left) / innerWidth))
+    setHoverIndex(Math.round(ratio * (dates.length - 1)))
+  }
+
+  const hoverX = hoverIndex == null ? null : model.xOf(hoverIndex)
+  const tooltipLeft = hoverX == null ? 0 : (hoverX / CHART_WIDTH) * 100
+  const alignLeft = hoverX != null && hoverX > CHART_WIDTH * 0.62
+  const leftHover = hoverIndex == null ? null : leftValues[hoverIndex]
+  const rightHover = hoverIndex == null ? null : rightValues[hoverIndex]
+
+  return (
+    <div
+      className="relative"
+      onPointerMove={handlePointerMove}
+      onPointerLeave={() => setHoverIndex(null)}
+    >
+      <svg
+        viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`}
+        className="w-full h-auto select-none"
+        role="img"
+        aria-label={ariaLabel}
+      >
+        {model.leftScale.ticks.map((tick) => (
+          <g key={`left-${tick}`}>
+            <line
+              x1={DUAL_PADDING.left}
+              x2={CHART_WIDTH - DUAL_PADDING.right}
+              y1={model.yLeft(tick)}
+              y2={model.yLeft(tick)}
+              stroke="hsl(var(--border))"
+              strokeWidth={0.5}
+              strokeDasharray="2 4"
+            />
+            <text
+              x={DUAL_PADDING.left - 8}
+              y={model.yLeft(tick) + 3.5}
+              textAnchor="end"
+              fill="hsl(var(--muted-foreground))"
+              fontSize={10}
+            >
+              {tickLabel(tick, model.leftScale.step)}
+            </text>
+          </g>
+        ))}
+        {model.rightScale.ticks.map((tick) => (
+          <text
+            key={`right-${tick}`}
+            x={CHART_WIDTH - DUAL_PADDING.right + 8}
+            y={model.yRight(tick) + 3.5}
+            textAnchor="start"
+            fill="hsl(var(--muted-foreground))"
+            fontSize={10}
+          >
+            {tickLabel(tick, model.rightScale.step)}
+          </text>
+        ))}
+        <text
+          x={4}
+          y={12}
+          textAnchor="start"
+          fill={leftColor}
+          fontSize={9}
+        >
+          {leftLabel}
+        </text>
+        <text
+          x={CHART_WIDTH - 4}
+          y={12}
+          textAnchor="end"
+          fill={rightColor}
+          fontSize={9}
+        >
+          {rightLabel}
+        </text>
+        {model.leftPaths.map((path, index) => (
+          <path
+            key={`left-path-${index}`}
+            d={path}
+            fill="none"
+            stroke={leftColor}
+            strokeWidth={2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        ))}
+        {model.rightPaths.map((path, index) => (
+          <path
+            key={`right-path-${index}`}
+            d={path}
+            fill="none"
+            stroke={rightColor}
+            strokeWidth={2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        ))}
+        {model.xTicks.map((tick) => (
+          <text
+            key={`${tick.label}-${tick.x}`}
+            x={tick.x}
+            y={CHART_HEIGHT - 10}
+            textAnchor={tick.anchor}
+            fill="hsl(var(--muted-foreground))"
+            fontSize={10}
+          >
+            {tick.label}
+          </text>
+        ))}
+        {hoverX != null && (
+          <line
+            x1={hoverX}
+            x2={hoverX}
+            y1={DUAL_PADDING.top}
+            y2={CHART_HEIGHT - DUAL_PADDING.bottom}
+            stroke="hsl(var(--muted-foreground))"
+            strokeWidth={0.8}
+            strokeDasharray="3 3"
+            opacity={0.6}
+          />
+        )}
+      </svg>
+      {hoverIndex != null && (
+        <div
+          className="pointer-events-none absolute top-1 z-10 min-w-[190px] rounded-md border border-border bg-popover px-2.5 py-2 shadow-sm"
+          style={{
+            left: `${tooltipLeft}%`,
+            transform: alignLeft ? 'translateX(-100%)' : 'translateX(0)',
+          }}
+        >
+          <div className="font-mono text-[11px] text-muted-foreground">{dates[hoverIndex]}</div>
+          <div className="mt-1 space-y-0.5">
+            <div className="flex items-center gap-1.5 text-[11px]">
+              <span
+                className="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
+                style={{ backgroundColor: leftColor }}
+              />
+              <span className="text-muted-foreground">{leftLabel}</span>
+              <span className="ml-auto whitespace-nowrap font-mono font-medium text-foreground">
+                {formatValue(leftHover, 0)}
+                {valueUnit ? ` ${valueUnit}` : ''}
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5 text-[11px]">
+              <span
+                className="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
+                style={{ backgroundColor: rightColor }}
+              />
+              <span className="text-muted-foreground">{rightLabel}</span>
+              <span className="ml-auto whitespace-nowrap font-mono font-medium text-foreground">
+                {formatValue(rightHover, 0)}
+                {valueUnit ? ` ${valueUnit}` : ''}
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function AluminumDashboard({ data }: { data: MetricsPayload }) {
+  const { t } = useTranslation('configuration')
+  const unit = t('etfShares.aluminum.unit')
+  const a00Avg = data.series.a00_avg ?? []
+  const a00Low = data.series.a00_low ?? []
+  const a00High = data.series.a00_high ?? []
+  const aluminaAvg = data.series.alumina_avg ?? []
+  const spread = data.series.spread ?? []
+  const a00Series: ChartSeries[] = [
+    {
+      code: 'a00_avg',
+      name: t('etfShares.aluminum.legend.average'),
+      color: ALUMINUM_A00_COLORS.avg,
+      values: a00Avg,
+      filled: true,
+    },
+    {
+      code: 'a00_low',
+      name: t('etfShares.aluminum.legend.low'),
+      color: ALUMINUM_A00_COLORS.low,
+      values: a00Low,
+      dashed: true,
+    },
+    {
+      code: 'a00_high',
+      name: t('etfShares.aluminum.legend.high'),
+      color: ALUMINUM_A00_COLORS.high,
+      values: a00High,
+      dashed: true,
+    },
+  ]
+  const aluminaSeries: ChartSeries[] = [
+    {
+      code: 'alumina_avg',
+      name: t('etfShares.aluminum.legend.aluminaAverage'),
+      color: ALUMINUM_METRIC_COLORS.alumina_avg,
+      values: aluminaAvg,
+      filled: true,
+    },
+  ]
+  const recentCount = Math.min(20, data.dates.length)
+  const recentDates = data.dates.slice(-recentCount)
+  const recentA00 = a00Avg.slice(-recentCount)
+  const recentAlumina = aluminaAvg.slice(-recentCount)
+
+  return (
+    <div className="space-y-4">
+      <section className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+        {data.metrics.map((metric) => {
+          const key = ALUMINUM_METRIC_KEYS[metric.id as keyof typeof ALUMINUM_METRIC_KEYS]
+          return (
+            <MetricCard
+              key={metric.id}
+              metric={metric}
+              label={key ? t(key) : metric.id}
+              unit={unit}
+              color={ALUMINUM_METRIC_COLORS[metric.id] ?? '#64748b'}
+              digits={0}
+            />
+          )
+        })}
+      </section>
+
+      <section className="card overflow-hidden">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border/60 px-4 py-2.5">
+          <span
+            className="h-4 w-1 rounded"
+            style={{ backgroundColor: ALUMINUM_A00_COLORS.avg }}
+          />
+          <h2 className="text-[13px] font-semibold">
+            {t('etfShares.aluminum.charts.a00Title')}
+          </h2>
+          <span className="text-[11px] text-muted-foreground">
+            {t('etfShares.aluminum.charts.a00Hint')}
+          </span>
+          <div className="ml-auto">
+            <ChartLegend
+              items={a00Series.map((item) => ({
+                code: item.code,
+                name: item.name,
+                color: item.color,
+                dashed: item.dashed,
+              }))}
+            />
+          </div>
+        </div>
+        <div className="px-2 pb-2 pt-3 md:px-4">
+          <ShareChart
+            dates={data.dates}
+            series={a00Series}
+            emptyText={t('etfShares.aluminum.charts.empty')}
+            unitLabel={t('etfShares.aluminum.charts.a00YUnit')}
+            ariaLabel={t('etfShares.aluminum.charts.a00Title')}
+            labelByName
+            valueUnit={unit}
+            valueDigits={0}
+            sortTooltip={false}
+          />
+        </div>
+      </section>
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        <section className="card overflow-hidden">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border/60 px-4 py-2.5">
+            <span
+              className="h-4 w-1 rounded"
+              style={{ backgroundColor: ALUMINUM_METRIC_COLORS.alumina_avg }}
+            />
+            <h2 className="text-[13px] font-semibold">
+              {t('etfShares.aluminum.charts.aluminaTitle')}
+            </h2>
+            <div className="ml-auto">
+              <ChartLegend
+                items={[
+                  {
+                    code: 'alumina_avg',
+                    name: t('etfShares.aluminum.legend.aluminaAverage'),
+                    color: ALUMINUM_METRIC_COLORS.alumina_avg,
+                  },
+                ]}
+              />
+            </div>
+          </div>
+          <div className="px-2 pb-2 pt-3 md:px-4">
+            <p className="mb-1 text-[11px] text-muted-foreground">
+              {t('etfShares.aluminum.charts.aluminaHint')}
+            </p>
+            <ShareChart
+              dates={data.dates}
+              series={aluminaSeries}
+              emptyText={t('etfShares.aluminum.charts.empty')}
+              unitLabel={t('etfShares.aluminum.charts.aluminaYUnit')}
+              ariaLabel={t('etfShares.aluminum.charts.aluminaTitle')}
+              labelByName
+              valueUnit={unit}
+              valueDigits={0}
+            />
+          </div>
+        </section>
+
+        <section className="card overflow-hidden">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border/60 px-4 py-2.5">
+            <span
+              className="h-4 w-1 rounded"
+              style={{ backgroundColor: ALUMINUM_METRIC_COLORS.spread }}
+            />
+            <h2 className="text-[13px] font-semibold">
+              {t('etfShares.aluminum.charts.spreadTitle')}
+            </h2>
+            <span className="ml-auto text-[11px] text-muted-foreground">
+              {t('etfShares.aluminum.charts.spreadHint')}
+            </span>
+          </div>
+          <div className="px-2 pb-2 pt-3 md:px-4">
+            <PriceSpreadChart
+              dates={data.dates}
+              values={spread}
+              emptyText={t('etfShares.aluminum.charts.empty')}
+              unitLabel={t('etfShares.aluminum.charts.spreadYUnit')}
+              valueUnit={unit}
+              ariaLabel={t('etfShares.aluminum.charts.spreadTitle')}
+            />
+          </div>
+        </section>
+      </div>
+
+      <section className="card overflow-hidden">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border/60 px-4 py-2.5">
+          <span
+            className="h-4 w-1 rounded"
+            style={{ backgroundColor: ALUMINUM_A00_COLORS.avg }}
+          />
+          <h2 className="text-[13px] font-semibold">
+            {t('etfShares.aluminum.charts.compareTitle')}
+          </h2>
+          <span className="text-[11px] text-muted-foreground">
+            {t('etfShares.aluminum.charts.compareHint')}
+          </span>
+          <div className="ml-auto">
+            <ChartLegend
+              items={[
+                {
+                  code: 'a00',
+                  name: t('etfShares.aluminum.legend.a00'),
+                  color: ALUMINUM_A00_COLORS.avg,
+                },
+                {
+                  code: 'alumina',
+                  name: t('etfShares.aluminum.legend.alumina'),
+                  color: ALUMINUM_METRIC_COLORS.alumina_avg,
+                },
+              ]}
+            />
+          </div>
+        </div>
+        <div className="px-2 pb-2 pt-3 md:px-4">
+          <DualAxisChart
+            dates={recentDates}
+            leftValues={recentA00}
+            rightValues={recentAlumina}
+            leftLabel={t('etfShares.aluminum.legend.a00')}
+            rightLabel={t('etfShares.aluminum.legend.alumina')}
+            leftColor={ALUMINUM_A00_COLORS.avg}
+            rightColor={ALUMINUM_METRIC_COLORS.alumina_avg}
+            emptyText={t('etfShares.aluminum.charts.empty')}
+            valueUnit={unit}
+            ariaLabel={t('etfShares.aluminum.charts.compareTitle')}
+          />
+        </div>
+      </section>
+
+      <p className="px-1 text-[11px] text-muted-foreground/80">
+        {t('etfShares.aluminum.caveat')}
+      </p>
+    </div>
+  )
+}
+
+function AluminumInventoryDashboard({ data }: { data: MetricsPayload }) {
+  const { t } = useTranslation('configuration')
+  const unit = t('etfShares.aluminumInventory.unit')
+  const social = data.series.social ?? []
+  const factory = data.series.factory ?? []
+  const socialChange = data.series.social_change ?? []
+  const factoryDates: string[] = []
+  const factoryValues: Array<number | null> = []
+  const socialDates: string[] = []
+  const socialValues: Array<number | null> = []
+  const socialChanges: Array<number | null> = []
+  data.dates.forEach((day, index) => {
+    const factoryValue = factory[index]
+    if (typeof factoryValue === 'number') {
+      factoryDates.push(day)
+      factoryValues.push(factoryValue)
+    }
+    const socialValue = social[index]
+    if (typeof socialValue === 'number') {
+      socialDates.push(day)
+      socialValues.push(socialValue)
+      socialChanges.push(socialChange[index] ?? null)
+    }
+  })
+  const socialSeries: ChartSeries[] = [
+    {
+      code: 'social',
+      name: t('etfShares.aluminumInventory.metrics.social'),
+      color: ALUMINUM_INVENTORY_METRIC_COLORS.social,
+      values: socialValues,
+      filled: true,
+    },
+  ]
+  const factorySeries: ChartSeries[] = [
+    {
+      code: 'factory',
+      name: t('etfShares.aluminumInventory.metrics.factory'),
+      color: ALUMINUM_INVENTORY_METRIC_COLORS.factory,
+      values: factoryValues,
+      filled: true,
+    },
+  ]
+
+  return (
+    <div className="space-y-4">
+      <section className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+        {data.metrics.map((metric) => {
+          const key =
+            ALUMINUM_INVENTORY_METRIC_KEYS[
+              metric.id as keyof typeof ALUMINUM_INVENTORY_METRIC_KEYS
+            ]
+          return (
+            <MetricCard
+              key={metric.id}
+              metric={metric}
+              label={key ? t(key) : metric.id}
+              unit={unit}
+              color={ALUMINUM_INVENTORY_METRIC_COLORS[metric.id] ?? '#64748b'}
+              digits={1}
+            />
+          )
+        })}
+      </section>
+
+      <section className="card overflow-hidden">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border/60 px-4 py-2.5">
+          <span
+            className="h-4 w-1 rounded"
+            style={{ backgroundColor: ALUMINUM_INVENTORY_METRIC_COLORS.social }}
+          />
+          <h2 className="text-[13px] font-semibold">
+            {t('etfShares.aluminumInventory.charts.socialTitle')}
+          </h2>
+          <span className="text-[11px] text-muted-foreground">
+            {t('etfShares.aluminumInventory.charts.socialHint')}
+          </span>
+          <div className="ml-auto">
+            <ChartLegend
+              items={[
+                {
+                  code: 'social',
+                  name: t('etfShares.aluminumInventory.metrics.social'),
+                  color: ALUMINUM_INVENTORY_METRIC_COLORS.social,
+                },
+              ]}
+            />
+          </div>
+        </div>
+        <div className="px-2 pb-2 pt-3 md:px-4">
+          <ShareChart
+            dates={socialDates}
+            series={socialSeries}
+            emptyText={t('etfShares.aluminumInventory.charts.empty')}
+            unitLabel={t('etfShares.aluminumInventory.charts.socialYUnit')}
+            ariaLabel={t('etfShares.aluminumInventory.charts.socialTitle')}
+            labelByName
+            valueUnit={unit}
+            valueDigits={1}
+            sortTooltip={false}
+          />
+        </div>
+      </section>
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        <section className="card overflow-hidden">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border/60 px-4 py-2.5">
+            <span
+              className="h-4 w-1 rounded"
+              style={{ backgroundColor: ALUMINUM_INVENTORY_METRIC_COLORS.factory }}
+            />
+            <h2 className="text-[13px] font-semibold">
+              {t('etfShares.aluminumInventory.charts.factoryTitle')}
+            </h2>
+            <span className="ml-auto text-[11px] text-muted-foreground">
+              {t('etfShares.aluminumInventory.charts.factoryHint')}
+            </span>
+          </div>
+          <div className="px-2 pb-2 pt-3 md:px-4">
+            <ShareChart
+              dates={factoryDates}
+              series={factorySeries}
+              emptyText={t('etfShares.aluminumInventory.charts.empty')}
+              unitLabel={t('etfShares.aluminumInventory.charts.factoryYUnit')}
+              ariaLabel={t('etfShares.aluminumInventory.charts.factoryTitle')}
+              labelByName
+              valueUnit={unit}
+              valueDigits={1}
+            />
+          </div>
+        </section>
+
+        <section className="card overflow-hidden">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border/60 px-4 py-2.5">
+            <span
+              className="h-4 w-1 rounded"
+              style={{ backgroundColor: ALUMINUM_INVENTORY_METRIC_COLORS.total }}
+            />
+            <h2 className="text-[13px] font-semibold">
+              {t('etfShares.aluminumInventory.charts.changeTitle')}
+            </h2>
+            <span className="ml-auto text-[11px] text-muted-foreground">
+              {t('etfShares.aluminumInventory.charts.changeHint')}
+            </span>
+          </div>
+          <div className="px-2 pb-2 pt-3 md:px-4">
+            <PriceSpreadChart
+              dates={socialDates}
+              values={socialChanges}
+              emptyText={t('etfShares.aluminumInventory.charts.empty')}
+              unitLabel={t('etfShares.aluminumInventory.charts.changeYUnit')}
+              valueUnit={unit}
+              ariaLabel={t('etfShares.aluminumInventory.charts.changeTitle')}
+            />
+          </div>
+        </section>
+      </div>
+
+      <p className="px-1 text-[11px] text-muted-foreground/80">
+        {t('etfShares.aluminumInventory.caveat')}
+      </p>
+    </div>
+  )
+}
+
 type CoalEditor = { mode: 'create' } | { mode: 'edit'; original: string }
 
 interface YearOverlayPoint {
@@ -2210,7 +3051,7 @@ function EtfSharesPage() {
     setCurve(null)
 
     const run = async (action: 'curve' | 'refresh') => {
-      const full = groupId === 'coalPrice'
+      const full = groupId === 'coalPrice' || groupId === 'aluminumInventory'
       try {
         const data =
           action === 'refresh'
@@ -2254,35 +3095,57 @@ function EtfSharesPage() {
   const activeGroup = groups.find((group) => group.id === groupId) ?? null
   const isMarginGroup = activeGroup?.id === 'margin'
   const isCoalGroup = activeGroup?.id === 'coalPrice'
+  const isAluminumGroup = activeGroup?.id === 'aluminum'
+  const isInventoryGroup = activeGroup?.id === 'aluminumInventory'
   const pageTitle = isCoalGroup
     ? t('etfShares.coal.title')
-    : isMarginGroup
-      ? t('etfShares.margin.title')
-      : t('etfShares.title')
+    : isInventoryGroup
+      ? t('etfShares.aluminumInventory.title')
+      : isAluminumGroup
+        ? t('etfShares.aluminum.title')
+        : isMarginGroup
+          ? t('etfShares.margin.title')
+          : t('etfShares.title')
   const pageBadge = isCoalGroup
     ? t('etfShares.coal.badge')
-    : isMarginGroup
-      ? t('etfShares.margin.badge')
-      : t('etfShares.badge')
+    : isInventoryGroup
+      ? t('etfShares.aluminumInventory.badge')
+      : isAluminumGroup
+        ? t('etfShares.aluminum.badge')
+        : isMarginGroup
+          ? t('etfShares.margin.badge')
+          : t('etfShares.badge')
   const pageSubtitle = isCoalGroup
     ? t('etfShares.coal.subtitle')
-    : isMarginGroup
-      ? t('etfShares.margin.subtitle')
-      : t('etfShares.subtitle')
+    : isInventoryGroup
+      ? t('etfShares.aluminumInventory.subtitle')
+      : isAluminumGroup
+        ? t('etfShares.aluminum.subtitle')
+        : isMarginGroup
+          ? t('etfShares.margin.subtitle')
+          : t('etfShares.subtitle')
   const cardUnit = t('etfShares.unit')
   const chartTitle = t('etfShares.chart.title')
   const chartEmpty = t('etfShares.chart.empty')
   const chartYUnit = t('etfShares.chart.yUnit')
   const loadingText = isCoalGroup
     ? t('etfShares.coal.loading')
-    : isMarginGroup
-      ? t('etfShares.margin.loading')
-      : t('etfShares.loading')
+    : isInventoryGroup
+      ? t('etfShares.aluminumInventory.loading')
+      : isAluminumGroup
+        ? t('etfShares.aluminum.loading')
+        : isMarginGroup
+          ? t('etfShares.margin.loading')
+          : t('etfShares.loading')
   const noDataText = isCoalGroup
     ? t('etfShares.coal.noData')
-    : isMarginGroup
-      ? t('etfShares.margin.noData')
-      : t('etfShares.errors.noData')
+    : isInventoryGroup
+      ? t('etfShares.aluminumInventory.noData')
+      : isAluminumGroup
+        ? t('etfShares.aluminum.noData')
+        : isMarginGroup
+          ? t('etfShares.margin.noData')
+          : t('etfShares.errors.noData')
   const metricsCurve = isMetricsPayload(curve) ? curve : null
   const shareCurve = curve && !isMetricsPayload(curve) ? curve : null
   const hasData = metricsCurve
@@ -2368,7 +3231,11 @@ function EtfSharesPage() {
     curve && curve.dates.length > 0
       ? isCoalGroup
         ? t('etfShares.coal.updatedCount', { count: curve.coverage.trading_days })
-        : t('etfShares.updatedCount', { count: curve.coverage.trading_days })
+        : isInventoryGroup
+          ? t('etfShares.aluminumInventory.updatedCount', {
+              count: curve.coverage.trading_days,
+            })
+          : t('etfShares.updatedCount', { count: curve.coverage.trading_days })
       : ''
 
   return (
@@ -2399,7 +3266,7 @@ function EtfSharesPage() {
           </div>
           {activeGroup?.available !== false && (
             <div className="flex items-center gap-2">
-              {!isCoalGroup && (
+              {!isCoalGroup && !isInventoryGroup && (
                 <Select
                   value={String(days)}
                   onValueChange={(value) => setDays(Number(value))}
@@ -2494,6 +3361,10 @@ function EtfSharesPage() {
             </section>
           ) : isCoalGroup && metricsCurve ? (
             <CoalDashboard data={metricsCurve} onChanged={handleCoalChanged} />
+          ) : isAluminumGroup && metricsCurve ? (
+            <AluminumDashboard data={metricsCurve} />
+          ) : isInventoryGroup && metricsCurve ? (
+            <AluminumInventoryDashboard data={metricsCurve} />
           ) : !hasData ? (
             <section className="card flex h-[320px] flex-col items-center justify-center gap-2 px-6 text-center">
               <p className="text-[13px] text-muted-foreground">{noDataText}</p>

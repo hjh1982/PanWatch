@@ -1548,3 +1548,38 @@ class CoalPricePoint(Base):
     price = Column(Float, nullable=False)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class AluminumPricePoint(Base):
+    """A00 铝与山西氧化铝日度现货报价（元/吨）。"""
+
+    __tablename__ = "aluminum_price_points"
+    __table_args__ = (
+        UniqueConstraint("trade_date", name="uq_aluminum_price_points_trade_date"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    trade_date = Column(String(10), nullable=False)
+    a00_low = Column(Float)
+    a00_high = Column(Float)
+    a00_avg = Column(Float)
+    a00_change = Column(Float)
+    alumina_avg = Column(Float)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class AluminumInventoryPoint(Base):
+    """Mysteel 电解铝社会库存与铝厂厂内库存（万吨）。"""
+
+    __tablename__ = "aluminum_inventory_points"
+    __table_args__ = (
+        UniqueConstraint("report_date", name="uq_aluminum_inventory_points_report_date"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    report_date = Column(String(10), nullable=False)
+    social_wan = Column(Float)
+    factory_wan = Column(Float)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
