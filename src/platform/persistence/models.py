@@ -1533,3 +1533,18 @@ class EtfShareTradeDay(Base):
     trade_date = Column(String(10), primary_key=True)
     total = Column(Integer)
     fetched_at = Column(DateTime, server_default=func.now())
+
+
+class CoalPricePoint(Base):
+    """CCI5500 日度现货价（元/吨），可在煤炭价格页维护。"""
+
+    __tablename__ = "coal_price_points"
+    __table_args__ = (
+        UniqueConstraint("trade_date", name="uq_coal_price_points_trade_date"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    trade_date = Column(String(10), nullable=False)
+    price = Column(Float, nullable=False)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())

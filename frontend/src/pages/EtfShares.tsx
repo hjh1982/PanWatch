@@ -5,13 +5,23 @@ import {
   useMemo,
   useRef,
   useState,
+  type FormEvent,
   type PointerEvent as ReactPointerEvent,
 } from 'react'
 import { useTranslation } from 'react-i18next'
-import { LineChart, Loader2, RefreshCw } from 'lucide-react'
+import { Database, LineChart, Loader2, Pencil, Plus, RefreshCw } from 'lucide-react'
 import { fetchAPI } from '@panwatch/api/client'
 import { Badge } from '@panwatch/base-ui/components/ui/badge'
 import { Button } from '@panwatch/base-ui/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@panwatch/base-ui/components/ui/dialog'
+import { Input } from '@panwatch/base-ui/components/ui/input'
+import { Label } from '@panwatch/base-ui/components/ui/label'
 import {
   Select,
   SelectContent,
@@ -74,7 +84,13 @@ interface MarginMetric {
   delta_pct: number | null
 }
 
-interface MarginPayload {
+interface CoalStorage {
+  database: string
+  table: string
+  seed: string
+}
+
+interface MetricsPayload {
   group: string
   group_label: string
   scope: string
@@ -83,28 +99,50 @@ interface MarginPayload {
   metrics: MarginMetric[]
   series: Record<string, Array<number | null>>
   coverage: Coverage
+  storage?: CoalStorage
 }
 
-type CurveResponse = ShareCurvePayload | MarginPayload
+type CurveResponse = ShareCurvePayload | MetricsPayload
 
-function isMarginPayload(
+interface CoalPoint {
+  date: string
+  price: number
+}
+
+function isMetricsPayload(
   payload: CurveResponse | null | undefined,
-): payload is MarginPayload {
-  return Boolean(payload && payload.group === 'margin' && 'metrics' in payload)
+): payload is MetricsPayload {
+  return Boolean(payload && 'metrics' in payload && 'series' in payload)
 }
 
 const etfSharesApi = {
   catalog: () => fetchAPI<Catalog>('/etf-shares/catalog'),
-  curve: (group: string, days: number) =>
+  curve: (group: string, days: number, full = false) =>
     fetchAPI<CurveResponse>(
-      `/etf-shares/curve?group=${encodeURIComponent(group)}&days=${days}`,
+      `/etf-shares/curve?group=${encodeURIComponent(group)}&days=${days}${full ? '&full=1' : ''}`,
       { timeoutMs: 90_000 },
     ),
-  refresh: (group: string, days: number) =>
+  refresh: (group: string, days: number, full = false) =>
     fetchAPI<CurveResponse>(
-      `/etf-shares/refresh?group=${encodeURIComponent(group)}&days=${days}`,
+      `/etf-shares/refresh?group=${encodeURIComponent(group)}&days=${days}${full ? '&full=1' : ''}`,
       { method: 'POST', timeoutMs: 120_000 },
     ),
+  createCoalPoint: (point: CoalPoint) =>
+    fetchAPI<CoalPoint>('/etf-shares/coal/points', {
+      method: 'POST',
+      body: JSON.stringify(point),
+    }),
+  updateCoalPoint: (originalDay: string, point: CoalPoint) =>
+    fetchAPI<CoalPoint>(
+      `/etf-shares/coal/points/${encodeURIComponent(originalDay)}`,
+      { method: 'PUT', body: JSON.stringify(point) },
+    ),
+}
+
+function localDateString(): string {
+  const now = new Date()
+  const local = new Date(now.getTime() - now.getTimezoneOffset() * 60_000)
+  return local.toISOString().slice(0, 10)
 }
 
 const SERIES_COLORS = ['#e5484d', '#3b82f6', '#f59e0b', '#0ea5a4', '#a855f7']
@@ -125,6 +163,13 @@ const MARGIN_METRIC_KEYS = {
   rq_balance: 'etfShares.margin.metrics.rq_balance',
   total_balance: 'etfShares.margin.metrics.total_balance',
 } as const
+const COAL_METRIC_COLORS: Record<string, string> = {
+  cci_5500: '#059669',
+}
+const COAL_METRIC_KEYS = {
+  cci_5500: 'etfShares.coal.metrics.cci_5500',
+} as const
+const YEAR_COLORS = ['#94a3b8', '#8b5cf6', '#3b82f6', '#f59e0b', '#059669']
 const GROUP_LABEL_KEYS = {
   hs300: 'etfShares.groups.hs300',
   zz500: 'etfShares.groups.zz500',
@@ -280,6 +325,7 @@ function ShareChart({
   ariaLabel,
   labelByName = false,
   valueUnit = '',
+  valueDigits = 2,
   sortTooltip = true,
 }: {
   dates: string[]
@@ -289,6 +335,7 @@ function ShareChart({
   ariaLabel: string
   labelByName?: boolean
   valueUnit?: string
+  valueDigits?: number
   sortTooltip?: boolean
 }) {
   const gradientId = useId()
@@ -532,7 +579,7 @@ function ShareChart({
                   {labelByName ? item.name : item.code}
                 </span>
                 <span className="ml-auto whitespace-nowrap font-mono font-medium text-foreground">
-                  {formatValue(item.value)}
+                  {formatValue(item.value, valueDigits)}
                   {valueUnit ? ` ${valueUnit}` : ''}
                 </span>
               </div>
@@ -898,16 +945,19 @@ function ChartLegend({
   )
 }
 
-function MarginMetricCard({
+function MetricCard({
   metric,
   label,
   unit,
+  color,
+  digits = 2,
 }: {
   metric: MarginMetric
   label: string
   unit: string
+  color: string
+  digits?: number
 }) {
-  const color = MARGIN_METRIC_COLORS[metric.id] ?? '#64748b'
   return (
     <div className="relative overflow-hidden rounded-xl border border-border/60 bg-card/60 p-3">
       <span
@@ -920,12 +970,12 @@ function MarginMetricCard({
       </div>
       <div className="mt-1.5 flex items-baseline gap-1">
         <span className="font-mono text-[19px] font-bold leading-none text-foreground md:text-[21px]">
-          {formatValue(metric.latest)}
+          {formatValue(metric.latest, digits)}
         </span>
         <span className="shrink-0 text-[10px] text-muted-foreground">{unit}</span>
       </div>
       <div className={`mt-1.5 font-mono text-[11px] ${marketSignTextClass(metric.delta)}`}>
-        {formatDelta(metric.delta)}
+        {formatDelta(metric.delta, digits)}
         <span className="ml-1">({formatPercent(metric.delta_pct)})</span>
       </div>
     </div>
@@ -1169,7 +1219,7 @@ function MarginFlowChart({
   )
 }
 
-function MarginDashboard({ data }: { data: MarginPayload }) {
+function MarginDashboard({ data }: { data: MetricsPayload }) {
   const { t } = useTranslation('configuration')
   const amountUnit = t('etfShares.margin.unit')
   const volumeUnit = t('etfShares.margin.volumeUnit')
@@ -1202,11 +1252,12 @@ function MarginDashboard({ data }: { data: MarginPayload }) {
         {data.metrics.map((metric) => {
           const key = MARGIN_METRIC_KEYS[metric.id as keyof typeof MARGIN_METRIC_KEYS]
           return (
-            <MarginMetricCard
+            <MetricCard
               key={metric.id}
               metric={metric}
               label={key ? t(key) : metric.id}
               unit={metric.id === 'rq_volume' ? volumeUnit : amountUnit}
+              color={MARGIN_METRIC_COLORS[metric.id] ?? '#64748b'}
             />
           )
         })}
@@ -1324,6 +1375,652 @@ function MarginDashboard({ data }: { data: MarginPayload }) {
       <p className="px-1 text-[11px] text-muted-foreground/80">
         {t('etfShares.margin.caveat')}
       </p>
+    </div>
+  )
+}
+
+type CoalEditor = { mode: 'create' } | { mode: 'edit'; original: string }
+
+interface YearOverlayPoint {
+  day: string
+  value: number
+  axisIndex: number
+  x: number
+  y: number
+}
+
+function yearOverlayColor(index: number, total: number): string {
+  if (total <= 1) return COAL_METRIC_COLORS.cci_5500
+  const latest = YEAR_COLORS[YEAR_COLORS.length - 1]
+  const offset = Math.max(0, YEAR_COLORS.length - total)
+  if (offset === 0) {
+    return index === total - 1 ? latest : YEAR_COLORS[index % (YEAR_COLORS.length - 1)]
+  }
+  return YEAR_COLORS[Math.min(YEAR_COLORS.length - 1, offset + index)]
+}
+
+function YearOverlayChart({
+  dates,
+  values,
+  emptyText,
+  unitLabel,
+  valueUnit,
+  ariaLabel,
+}: {
+  dates: string[]
+  values: Array<number | null>
+  emptyText: string
+  unitLabel: string
+  valueUnit: string
+  ariaLabel: string
+}) {
+  const [hoverIndex, setHoverIndex] = useState<number | null>(null)
+  const model = useMemo(() => {
+    const byYear = new Map<string, Array<{ day: string; value: number }>>()
+    const axisSet = new Set<string>()
+    dates.forEach((date, index) => {
+      const value = values[index]
+      if (typeof value !== 'number' || !Number.isFinite(value)) return
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return
+      const year = date.slice(0, 4)
+      const day = date.slice(5)
+      axisSet.add(day)
+      const rows = byYear.get(year)
+      if (rows) rows.push({ day, value })
+      else byYear.set(year, [{ day, value }])
+    })
+    if (axisSet.size === 0 || byYear.size === 0) return null
+    const axis = [...axisSet].sort()
+    const scale = buildScale(
+      [...byYear.values()].flatMap((rows) => rows.map((row) => row.value)),
+      5,
+    )
+    if (!scale) return null
+    const innerWidth = CHART_WIDTH - CHART_PADDING.left - CHART_PADDING.right
+    const innerHeight = CHART_HEIGHT - CHART_PADDING.top - CHART_PADDING.bottom
+    const span = scale.max - scale.min || 1
+    const xOf = (index: number) =>
+      axis.length === 1
+        ? CHART_PADDING.left + innerWidth / 2
+        : CHART_PADDING.left + (index / (axis.length - 1)) * innerWidth
+    const yOf = (value: number) =>
+      CHART_PADDING.top + innerHeight - ((value - scale.min) / span) * innerHeight
+    const indexByDay = new Map(axis.map((day, index) => [day, index]))
+    const years = [...byYear.keys()].sort()
+    const lines = years.map((year, lineIndex) => {
+      const points: YearOverlayPoint[] = (byYear.get(year) ?? [])
+        .sort((left, right) => left.day.localeCompare(right.day))
+        .map((row) => {
+          const axisIndex = indexByDay.get(row.day) ?? 0
+          return {
+            ...row,
+            axisIndex,
+            x: xOf(axisIndex),
+            y: yOf(row.value),
+          }
+        })
+      const path = points
+        .map((point, pointIndex) => {
+          const command = pointIndex === 0 ? 'M' : 'L'
+          return `${command}${point.x.toFixed(2)},${point.y.toFixed(2)}`
+        })
+        .join(' ')
+      return {
+        year,
+        color: yearOverlayColor(lineIndex, years.length),
+        path,
+        points,
+        tail: points.length > 0 ? points[points.length - 1] : null,
+      }
+    })
+    const tickIndexes = new Set<number>()
+    ;['01', '03', '05', '07', '09', '11'].forEach((month) => {
+      const index = axis.findIndex((day) => day.startsWith(`${month}-`))
+      if (index >= 0) tickIndexes.add(index)
+    })
+    tickIndexes.add(axis.length - 1)
+    const xTicks = [...tickIndexes]
+      .sort((left, right) => left - right)
+      .map((index, position, all) => {
+        const anchor: 'start' | 'middle' | 'end' =
+          position === 0 ? 'start' : position === all.length - 1 ? 'end' : 'middle'
+        return { x: xOf(index), label: axis[index], anchor }
+      })
+    return { axis, scale, innerHeight, xOf, yOf, lines, xTicks }
+  }, [dates, values])
+
+  if (!model) {
+    return (
+      <div className="flex h-[220px] items-center justify-center text-[13px] text-muted-foreground">
+        {emptyText}
+      </div>
+    )
+  }
+
+  const handlePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect()
+    if (!rect.width || model.axis.length === 0) return
+    const svgX = ((event.clientX - rect.left) / rect.width) * CHART_WIDTH
+    const innerWidth = CHART_WIDTH - CHART_PADDING.left - CHART_PADDING.right
+    if (svgX < CHART_PADDING.left - 8 || svgX > CHART_PADDING.left + innerWidth + 8) {
+      setHoverIndex(null)
+      return
+    }
+    const ratio = Math.min(1, Math.max(0, (svgX - CHART_PADDING.left) / innerWidth))
+    setHoverIndex(Math.round(ratio * Math.max(0, model.axis.length - 1)))
+  }
+
+  const hoverDay = hoverIndex == null ? null : model.axis[hoverIndex]
+  const hoverX = hoverIndex == null ? null : model.xOf(hoverIndex)
+  const hoveredValues: Array<{
+    year: string
+    color: string
+    point: YearOverlayPoint
+  }> =
+    hoverIndex == null
+      ? []
+      : model.lines
+          .map((line) => {
+            const nearest = line.points.reduce<YearOverlayPoint | null>(
+              (best, point) => {
+                if (!best) return point
+                return Math.abs(point.axisIndex - hoverIndex) <
+                  Math.abs(best.axisIndex - hoverIndex)
+                  ? point
+                  : best
+              },
+              null,
+            )
+            return nearest && Math.abs(nearest.axisIndex - hoverIndex) <= 4
+              ? { year: line.year, color: line.color, point: nearest }
+              : null
+          })
+          .filter(
+            (
+              item,
+            ): item is { year: string; color: string; point: YearOverlayPoint } =>
+              item !== null,
+          )
+          .sort((left, right) => right.year.localeCompare(left.year))
+
+  return (
+    <div>
+      <div className="mb-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 px-1 text-[11px]">
+        {model.lines.map((line) => (
+          <span key={line.year} className="flex items-center gap-1.5">
+            <span
+              className="inline-block h-[2px] w-4 rounded-full"
+              style={{ backgroundColor: line.color }}
+            />
+            <span className="font-mono text-muted-foreground">{line.year}</span>
+          </span>
+        ))}
+      </div>
+      <div
+        className="relative"
+        onPointerMove={handlePointerMove}
+        onPointerLeave={() => setHoverIndex(null)}
+      >
+        <svg
+          viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`}
+          className="h-auto w-full select-none"
+          role="img"
+          aria-label={ariaLabel}
+        >
+          {model.scale.ticks.map((tick) => (
+            <g key={tick}>
+              <line
+                x1={CHART_PADDING.left}
+                x2={CHART_WIDTH - CHART_PADDING.right}
+                y1={model.yOf(tick)}
+                y2={model.yOf(tick)}
+                stroke="hsl(var(--border))"
+                strokeWidth={0.5}
+                strokeDasharray="2 4"
+              />
+              <text
+                x={CHART_PADDING.left - 8}
+                y={model.yOf(tick) + 3.5}
+                textAnchor="end"
+                fill="hsl(var(--muted-foreground))"
+                fontSize={10}
+              >
+                {tickLabel(tick, model.scale.step)}
+              </text>
+            </g>
+          ))}
+          <text
+            x={4}
+            y={10}
+            textAnchor="start"
+            fill="hsl(var(--muted-foreground))"
+            fontSize={9}
+          >
+            {unitLabel}
+          </text>
+          {model.lines.map((line, index) => (
+            <g key={line.year}>
+              <path
+                d={line.path}
+                fill="none"
+                stroke={line.color}
+                strokeWidth={index === model.lines.length - 1 ? 2.2 : 1.6}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              {line.tail && (
+                <circle
+                  cx={line.tail.x}
+                  cy={line.tail.y}
+                  r={index === model.lines.length - 1 ? 2.8 : 2.2}
+                  fill={line.color}
+                />
+              )}
+            </g>
+          ))}
+          {model.xTicks.map((tick) => (
+            <text
+              key={tick.label}
+              x={tick.x}
+              y={CHART_HEIGHT - 10}
+              textAnchor={tick.anchor}
+              fill="hsl(var(--muted-foreground))"
+              fontSize={10}
+            >
+              {tick.label}
+            </text>
+          ))}
+          {hoverIndex != null && hoverX != null && (
+            <>
+              <line
+                x1={hoverX}
+                x2={hoverX}
+                y1={CHART_PADDING.top}
+                y2={CHART_PADDING.top + model.innerHeight}
+                stroke="hsl(var(--muted-foreground))"
+                strokeWidth={0.8}
+                strokeDasharray="3 3"
+                opacity={0.6}
+              />
+              {hoveredValues.map((item) => (
+                <circle
+                  key={item.year}
+                  cx={item.point.x}
+                  cy={item.point.y}
+                  r={2.8}
+                  fill={item.color}
+                  stroke="hsl(var(--background))"
+                  strokeWidth={1}
+                />
+              ))}
+            </>
+          )}
+        </svg>
+        {hoverDay != null && hoveredValues.length > 0 && (
+          <div
+            className="pointer-events-none absolute top-1 z-10 min-w-[150px] max-w-[240px] rounded-md border border-border bg-popover px-2.5 py-2 shadow-sm"
+            style={{
+              left: `${((hoverX ?? 0) / CHART_WIDTH) * 100}%`,
+              transform:
+                hoverX != null && hoverX > CHART_WIDTH * 0.62
+                  ? 'translateX(-100%)'
+                  : 'translateX(0)',
+            }}
+          >
+            <div className="font-mono text-[11px] text-muted-foreground">{hoverDay}</div>
+            <div className="mt-1 space-y-0.5">
+              {hoveredValues.map((item) => (
+                <div key={item.year} className="flex items-center gap-1.5 text-[11px]">
+                  <span
+                    className="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
+                    style={{ backgroundColor: item.color }}
+                  />
+                  <span className="font-mono text-muted-foreground">{item.year}</span>
+                  {item.point.day !== hoverDay && (
+                    <span className="font-mono text-[10px] text-muted-foreground/60">
+                      {item.point.day}
+                    </span>
+                  )}
+                  <span className="ml-auto whitespace-nowrap font-mono font-medium text-foreground">
+                    {formatValue(item.point.value, 0)}
+                    {valueUnit ? ` ${valueUnit}` : ''}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function CoalDashboard({
+  data,
+  onChanged,
+}: {
+  data: MetricsPayload
+  onChanged: () => void
+}) {
+  const { t } = useTranslation(['configuration', 'common'])
+  const { toast } = useToast()
+  const dateFieldId = useId()
+  const priceFieldId = useId()
+  const unit = t('etfShares.coal.unit')
+  const points = useMemo<CoalPoint[]>(() => {
+    const values = data.series.cci_5500 ?? []
+    const rows: CoalPoint[] = []
+    data.dates.forEach((day, index) => {
+      const value = values[index]
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        rows.push({ date: day, price: value })
+      }
+    })
+    return rows.reverse()
+  }, [data])
+  const [editor, setEditor] = useState<CoalEditor | null>(null)
+  const [formDate, setFormDate] = useState('')
+  const [formPrice, setFormPrice] = useState('')
+  const [formError, setFormError] = useState('')
+  const [saving, setSaving] = useState(false)
+  const isEditing = editor?.mode === 'edit'
+
+  const openCreate = () => {
+    setEditor({ mode: 'create' })
+    setFormDate(localDateString())
+    setFormPrice('')
+    setFormError('')
+  }
+
+  const openEdit = (point: CoalPoint) => {
+    setEditor({ mode: 'edit', original: point.date })
+    setFormDate(point.date)
+    setFormPrice(String(Math.round(point.price)))
+    setFormError('')
+  }
+
+  const closeEditor = () => {
+    if (saving) return
+    setEditor(null)
+    setFormError('')
+  }
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault()
+    if (!editor) return
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(formDate)) {
+      setFormError(t('etfShares.coal.data.invalidDate'))
+      return
+    }
+    const price = Number(formPrice.trim())
+    if (!/^\d+$/.test(formPrice.trim()) || !Number.isFinite(price) || price <= 0) {
+      setFormError(t('etfShares.coal.data.invalidPrice'))
+      return
+    }
+    const duplicate = points.some(
+      (point) =>
+        point.date === formDate &&
+        !(editor.mode === 'edit' && editor.original === formDate),
+    )
+    if (duplicate) {
+      setFormError(t('etfShares.coal.data.dateExists'))
+      return
+    }
+    setSaving(true)
+    setFormError('')
+    try {
+      if (editor.mode === 'edit') {
+        await etfSharesApi.updateCoalPoint(editor.original, { date: formDate, price })
+        toast(t('etfShares.coal.data.updated'), 'success')
+      } else {
+        await etfSharesApi.createCoalPoint({ date: formDate, price })
+        toast(t('etfShares.coal.data.created'), 'success')
+      }
+      setSaving(false)
+      setEditor(null)
+      onChanged()
+    } catch (error) {
+      setSaving(false)
+      setFormError(
+        error instanceof Error
+          ? error.message
+          : t('etfShares.coal.data.saveFailed'),
+      )
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <section className="grid grid-cols-1 gap-2.5 sm:max-w-xs">
+        {data.metrics.map((metric) => {
+          const key = COAL_METRIC_KEYS[metric.id as keyof typeof COAL_METRIC_KEYS]
+          return (
+            <MetricCard
+              key={metric.id}
+              metric={metric}
+              label={key ? t(key) : metric.id}
+              unit={unit}
+              color={COAL_METRIC_COLORS[metric.id] ?? COAL_METRIC_COLORS.cci_5500}
+              digits={0}
+            />
+          )
+        })}
+      </section>
+
+      <section className="card overflow-hidden">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border/60 px-4 py-2.5">
+          <span
+            className="h-4 w-1 rounded"
+            style={{ backgroundColor: COAL_METRIC_COLORS.cci_5500 }}
+          />
+          <h2 className="text-[13px] font-semibold">
+            {t('etfShares.coal.charts.cciTitle')}
+          </h2>
+          <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+            {t('etfShares.coal.charts.daily')}
+          </span>
+          <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+            {t('etfShares.coal.charts.overlay')}
+          </span>
+          {data.as_of && (
+            <span className="ml-auto font-mono text-[11px] text-muted-foreground">
+              {data.as_of}
+            </span>
+          )}
+        </div>
+        <div className="px-2 pb-2 pt-3 md:px-4">
+          <p className="mb-2 px-1 text-[11px] text-muted-foreground/80">
+            {t('etfShares.coal.charts.overlayHint')}
+          </p>
+          <YearOverlayChart
+            dates={data.dates}
+            values={data.series.cci_5500 ?? []}
+            emptyText={t('etfShares.coal.charts.empty')}
+            unitLabel={t('etfShares.coal.charts.yUnit')}
+            valueUnit={unit}
+            ariaLabel={t('etfShares.coal.charts.overlayAria')}
+          />
+        </div>
+      </section>
+
+      <section className="card overflow-hidden">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-border/60 px-4 py-2.5">
+          <span
+            className="h-4 w-1 rounded"
+            style={{ backgroundColor: COAL_METRIC_COLORS.cci_5500 }}
+          />
+          <h2 className="text-[13px] font-semibold">
+            {t('etfShares.coal.data.title')}
+          </h2>
+          <Badge variant="secondary" className="text-[10px]">
+            {t('etfShares.coal.data.count', { count: points.length })}
+          </Badge>
+          <Button
+            variant="outline"
+            size="sm"
+            className="ml-auto h-7 px-2 text-[11px]"
+            onClick={openCreate}
+          >
+            <Plus className="h-3.5 w-3.5" />
+            {t('etfShares.coal.data.add')}
+          </Button>
+        </div>
+        {points.length === 0 ? (
+          <p className="px-4 py-6 text-center text-[12px] text-muted-foreground">
+            {t('etfShares.coal.data.empty')}
+          </p>
+        ) : (
+          <div className="max-h-[340px] overflow-auto scrollbar">
+            <table className="w-full text-[12px]">
+              <thead className="sticky top-0 z-10 bg-card text-left text-[11px] text-muted-foreground">
+                <tr className="border-b border-border/60">
+                  <th className="px-4 py-2 font-medium">
+                    {t('etfShares.coal.data.date')}
+                  </th>
+                  <th className="px-4 py-2 text-right font-medium">
+                    {t('etfShares.coal.data.price', { unit })}
+                  </th>
+                  <th className="w-20 px-3 py-2 text-right font-medium">
+                    {t('etfShares.coal.data.actions')}
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {points.map((point) => (
+                  <tr
+                    key={point.date}
+                    className="border-b border-border/40 last:border-0 hover:bg-accent/20"
+                  >
+                    <td className="px-4 py-1.5 font-mono">{point.date}</td>
+                    <td className="px-4 py-1.5 text-right font-mono">
+                      {formatValue(point.price, 0)}
+                    </td>
+                    <td className="px-3 py-1.5 text-right">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-2 text-[11px]"
+                        onClick={() => openEdit(point)}
+                      >
+                        <Pencil className="h-3 w-3" />
+                        {t('common:actions.edit')}
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <div className="space-y-1.5 border-t border-border/60 px-4 py-2.5 text-[11px] text-muted-foreground/80">
+          <p>{t('etfShares.coal.data.hint')}</p>
+          {data.storage && (
+            <div className="space-y-1 rounded-lg bg-muted/40 px-2.5 py-2">
+              <p className="flex items-start gap-1.5">
+                <Database className="mt-0.5 h-3 w-3 shrink-0" />
+                <span className="break-all">
+                  {t('etfShares.coal.data.storage', {
+                    database: data.storage.database,
+                    table: data.storage.table,
+                  })}
+                </span>
+              </p>
+              <p className="break-all pl-[18px] text-muted-foreground/70">
+                {t('etfShares.coal.data.seedFile', {
+                  path: data.storage.seed,
+                })}
+              </p>
+            </div>
+          )}
+        </div>
+      </section>
+
+      <p className="px-1 text-[11px] text-muted-foreground/80">
+        {t('etfShares.coal.caveat')}
+      </p>
+
+      <Dialog
+        open={editor !== null}
+        onOpenChange={(open) => {
+          if (!open) closeEditor()
+        }}
+      >
+        <DialogContent className="sm:max-w-[420px]">
+          <DialogHeader>
+            <DialogTitle>
+              {isEditing
+                ? t('etfShares.coal.data.editTitle')
+                : t('etfShares.coal.data.addTitle')}
+            </DialogTitle>
+            <DialogDescription>
+              {isEditing
+                ? t('etfShares.coal.data.editHint')
+                : t('etfShares.coal.data.addHint')}
+            </DialogDescription>
+          </DialogHeader>
+          <form
+            className="space-y-3"
+            onSubmit={(event) => {
+              void submit(event)
+            }}
+          >
+            <div className="space-y-1.5">
+              <Label htmlFor={dateFieldId}>
+                {t('etfShares.coal.data.dateLabel')}
+              </Label>
+              <Input
+                id={dateFieldId}
+                type="date"
+                value={formDate}
+                onChange={(event) => {
+                  setFormDate(event.target.value)
+                  setFormError('')
+                }}
+                required
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor={priceFieldId}>
+                {t('etfShares.coal.data.priceLabel', { unit })}
+              </Label>
+              <Input
+                id={priceFieldId}
+                type="number"
+                min={1}
+                step={1}
+                inputMode="numeric"
+                value={formPrice}
+                onChange={(event) => {
+                  setFormPrice(event.target.value)
+                  setFormError('')
+                }}
+                required
+              />
+            </div>
+            {formError && (
+              <p role="alert" className="text-[12px] text-red-500">
+                {formError}
+              </p>
+            )}
+            <div className="flex justify-end gap-2 pt-1">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={closeEditor}
+                disabled={saving}
+              >
+                {t('common:actions.cancel')}
+              </Button>
+              <Button type="submit" disabled={saving}>
+                {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                {saving
+                  ? t('etfShares.coal.data.saving')
+                  : t('common:actions.save')}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
@@ -1513,15 +2210,16 @@ function EtfSharesPage() {
     setCurve(null)
 
     const run = async (action: 'curve' | 'refresh') => {
+      const full = groupId === 'coalPrice'
       try {
         const data =
           action === 'refresh'
-            ? await etfSharesApi.refresh(groupId, days)
-            : await etfSharesApi.curve(groupId, days)
+            ? await etfSharesApi.refresh(groupId, days, full)
+            : await etfSharesApi.curve(groupId, days, full)
         if (cancelled) return
         setCurve(data)
         setLoading(false)
-        if (isMarginPayload(data)) {
+        if (isMetricsPayload(data)) {
           setFocusedCode(null)
           setFilling(false)
         } else {
@@ -1555,23 +2253,47 @@ function EtfSharesPage() {
   const groups = catalog?.groups ?? []
   const activeGroup = groups.find((group) => group.id === groupId) ?? null
   const isMarginGroup = activeGroup?.id === 'margin'
-  const pageTitle = isMarginGroup ? t('etfShares.margin.title') : t('etfShares.title')
-  const pageBadge = isMarginGroup ? t('etfShares.margin.badge') : t('etfShares.badge')
-  const pageSubtitle = isMarginGroup ? t('etfShares.margin.subtitle') : t('etfShares.subtitle')
+  const isCoalGroup = activeGroup?.id === 'coalPrice'
+  const pageTitle = isCoalGroup
+    ? t('etfShares.coal.title')
+    : isMarginGroup
+      ? t('etfShares.margin.title')
+      : t('etfShares.title')
+  const pageBadge = isCoalGroup
+    ? t('etfShares.coal.badge')
+    : isMarginGroup
+      ? t('etfShares.margin.badge')
+      : t('etfShares.badge')
+  const pageSubtitle = isCoalGroup
+    ? t('etfShares.coal.subtitle')
+    : isMarginGroup
+      ? t('etfShares.margin.subtitle')
+      : t('etfShares.subtitle')
   const cardUnit = t('etfShares.unit')
   const chartTitle = t('etfShares.chart.title')
   const chartEmpty = t('etfShares.chart.empty')
   const chartYUnit = t('etfShares.chart.yUnit')
-  const loadingText = isMarginGroup ? t('etfShares.margin.loading') : t('etfShares.loading')
-  const noDataText = isMarginGroup ? t('etfShares.margin.noData') : t('etfShares.errors.noData')
-  const marginCurve = isMarginPayload(curve) ? curve : null
-  const shareCurve = curve && !isMarginPayload(curve) ? curve : null
-  const hasData = isMarginGroup
-    ? Boolean(marginCurve && marginCurve.metrics.length > 0 && marginCurve.dates.length > 0)
+  const loadingText = isCoalGroup
+    ? t('etfShares.coal.loading')
+    : isMarginGroup
+      ? t('etfShares.margin.loading')
+      : t('etfShares.loading')
+  const noDataText = isCoalGroup
+    ? t('etfShares.coal.noData')
+    : isMarginGroup
+      ? t('etfShares.margin.noData')
+      : t('etfShares.errors.noData')
+  const metricsCurve = isMetricsPayload(curve) ? curve : null
+  const shareCurve = curve && !isMetricsPayload(curve) ? curve : null
+  const hasData = metricsCurve
+    ? metricsCurve.metrics.length > 0 && metricsCurve.dates.length > 0
     : Boolean(shareCurve && shareCurve.funds.length > 0)
   const fundMetas = activeGroup?.funds ?? []
   const curveFunds = shareCurve?.funds ?? []
-  const rangeOptions = (catalog?.allowed_days ?? [30, 60, 90, 120]).filter((value) => value <= 250)
+  const rangeOptions = (catalog?.allowed_days ?? [30, 60, 90, 120]).filter(
+    (value) => value <= 250,
+  )
+  const rangeLabel = (value: number) => t('etfShares.rangeDays', { count: value })
   const categories = (['broad', 'commodity'] as const)
     .map((category) => ({
       id: category,
@@ -1613,6 +2335,12 @@ function EtfSharesPage() {
 
   const selectGroup = (id: string) => {
     setGroupId(id)
+    const nextOptions = (catalog?.allowed_days ?? [30, 60, 90, 120]).filter(
+      (value) => value <= 250,
+    )
+    if (!nextOptions.includes(days)) {
+      setDays(catalog?.default_days ?? 90)
+    }
     setHiddenCodes([])
     setFocusedCode(null)
   }
@@ -1628,12 +2356,19 @@ function EtfSharesPage() {
     setReloadToken((current) => current + 1)
   }
 
+  const handleCoalChanged = () => {
+    refreshIntent.current = false
+    setReloadToken((current) => current + 1)
+  }
+
   const updatedLine = curve?.as_of
     ? t('etfShares.updatedAt', { date: curve.as_of })
     : t('etfShares.updatedUnknown')
   const updatedCount =
     curve && curve.dates.length > 0
-      ? t('etfShares.updatedCount', { count: curve.coverage.trading_days })
+      ? isCoalGroup
+        ? t('etfShares.coal.updatedCount', { count: curve.coverage.trading_days })
+        : t('etfShares.updatedCount', { count: curve.coverage.trading_days })
       : ''
 
   return (
@@ -1664,18 +2399,26 @@ function EtfSharesPage() {
           </div>
           {activeGroup?.available !== false && (
             <div className="flex items-center gap-2">
-              <Select value={String(days)} onValueChange={(value) => setDays(Number(value))}>
-                <SelectTrigger className="h-8 w-[190px] text-[12px]" aria-label={t('etfShares.rangeDays', { count: days })}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {rangeOptions.map((value) => (
-                    <SelectItem key={value} value={String(value)}>
-                      {t('etfShares.rangeDays', { count: value })}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              {!isCoalGroup && (
+                <Select
+                  value={String(days)}
+                  onValueChange={(value) => setDays(Number(value))}
+                >
+                  <SelectTrigger
+                    className="h-8 w-[190px] text-[12px]"
+                    aria-label={rangeLabel(days)}
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {rangeOptions.map((value) => (
+                      <SelectItem key={value} value={String(value)}>
+                        {rangeLabel(value)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
               <Button variant="outline" size="sm" onClick={refresh} disabled={loading}>
                 <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
                 {t('etfShares.refresh')}
@@ -1749,6 +2492,8 @@ function EtfSharesPage() {
               <Loader2 className="h-4 w-4 animate-spin" />
               {loadingText}
             </section>
+          ) : isCoalGroup && metricsCurve ? (
+            <CoalDashboard data={metricsCurve} onChanged={handleCoalChanged} />
           ) : !hasData ? (
             <section className="card flex h-[320px] flex-col items-center justify-center gap-2 px-6 text-center">
               <p className="text-[13px] text-muted-foreground">{noDataText}</p>
@@ -1757,8 +2502,8 @@ function EtfSharesPage() {
                 {t('etfShares.refresh')}
               </Button>
             </section>
-          ) : isMarginGroup && marginCurve ? (
-            <MarginDashboard data={marginCurve} />
+          ) : isMarginGroup && metricsCurve ? (
+            <MarginDashboard data={metricsCurve} />
           ) : shareCurve ? (
             <>
               <section className="card overflow-hidden">

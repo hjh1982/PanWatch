@@ -90,8 +90,7 @@ GROUPS: tuple[GroupDef, ...] = (
         id="coalPrice",
         label="煤炭价格",
         category="commodity",
-        accent="#94a3b8",
-        available=False,
+        accent="#f97316",
     ),
     GroupDef(
         id="aluminum",

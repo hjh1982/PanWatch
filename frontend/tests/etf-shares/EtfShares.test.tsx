@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fetchAPI } from '@panwatch/api/client'
@@ -51,8 +51,16 @@ const catalog = {
       id: 'coalPrice',
       label: '煤炭价格',
       category: 'commodity',
+      available: true,
+      accent: '#f97316',
+      funds: [],
+    },
+    {
+      id: 'aluminum',
+      label: '电解铝·氧化铝',
+      category: 'commodity',
       available: false,
-      accent: '#94a3b8',
+      accent: '#f97316',
       funds: [],
     },
   ],
@@ -94,6 +102,38 @@ const zz500Curve = {
   dates,
   funds: [fund('510500', '中证500ETF南方', 60.997686, -0.108)],
   coverage: { trading_days: 90, target: 90, complete: true },
+}
+
+const coalCurve = {
+  group: 'coalPrice',
+  group_label: '煤炭价格',
+  scope: 'CCI5500',
+  as_of: '2026-10-14',
+  dates: [
+    '2025-10-13',
+    '2025-10-14',
+    '2026-10-10',
+    '2026-10-13',
+    '2026-10-14',
+  ],
+  metrics: [
+    {
+      id: 'cci_5500',
+      latest: 1018,
+      latest_date: '2026-10-14',
+      delta: 5,
+      delta_pct: 0.4936,
+    },
+  ],
+  series: {
+    cci_5500: [972, 976, 1003, 1013, 1018],
+  },
+  coverage: { trading_days: 5, target: 5, complete: true },
+  storage: {
+    database: '/srv/panwatch/data/panwatch.db',
+    table: 'coal_price_points',
+    seed: '/srv/panwatch/src/modules/market/resources/coal_cci_5500.csv',
+  },
 }
 
 const marginCurve = {
@@ -161,8 +201,15 @@ beforeEach(() => {
   vi.mocked(fetchAPI).mockReset()
   vi.mocked(fetchAPI).mockImplementation((path => {
     if (path === '/etf-shares/catalog') return Promise.resolve(catalog)
+    if (path === '/etf-shares/coal/points') {
+      return Promise.resolve({ date: '2026-10-15', price: 1020 })
+    }
+    if (String(path).startsWith('/etf-shares/coal/points/')) {
+      return Promise.resolve({ date: '2026-10-14', price: 1020 })
+    }
     if (path.includes('/curve?group=zz500')) return Promise.resolve(zz500Curve)
     if (path.includes('/curve?group=margin')) return Promise.resolve(marginCurve)
+    if (path.includes('/curve?group=coalPrice')) return Promise.resolve(coalCurve)
     if (path.includes('/refresh')) return Promise.resolve(hs300Curve)
     return Promise.resolve(hs300Curve)
   }) as never)
@@ -271,7 +318,7 @@ describe('ETF share tracker page', () => {
     ).toBe(true)
   })
 
-  it('renders a planned group without requesting share data', async () => {
+  it('renders the CCI coal price dashboard', async () => {
     const user = userEvent.setup()
     render(<EtfSharesPage />)
     await screen.findAllByText('沪深300ETF华泰柏瑞')
@@ -279,11 +326,161 @@ describe('ETF share tracker page', () => {
     const entries = screen.getAllByRole('button', { name: '煤炭价格' })
     await user.click(entries[0])
 
+    expect(
+      await screen.findByRole('heading', { name: '煤炭价格 · CCI5500' }),
+    ).toBeTruthy()
+    expect(screen.getByText('现货')).toBeTruthy()
+    expect(screen.getAllByText('CCI5500 现货').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('1018').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('元/吨').length).toBeGreaterThan(0)
+    expect(
+      screen.getByRole('img', { name: 'CCI5500 现货价格（按年叠加）' }),
+    ).toBeTruthy()
+    expect(screen.getByText('日度')).toBeTruthy()
+    expect(screen.getByText('按年叠加')).toBeTruthy()
+    expect(screen.getByText('2025')).toBeTruthy()
+    expect(screen.getByText('2026')).toBeTruthy()
+    expect(screen.queryByText('近一年')).toBeNull()
+    expect(
+      screen.getByText(
+        /存放位置：\/srv\/panwatch\/data\/panwatch\.db · 表 coal_price_points/,
+      ),
+    ).toBeTruthy()
+    expect(screen.getByText(/coal_cci_5500\.csv/)).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: '每日份额变化量' })).toBeNull()
+    expect(
+      vi.mocked(fetchAPI).mock.calls.some(
+        (call) =>
+          String(call[0]).includes('group=coalPrice') &&
+          String(call[0]).includes('full=1'),
+      ),
+    ).toBe(true)
+  })
+
+  it('lists coal entries and adds a new price', async () => {
+    const user = userEvent.setup()
+    render(<EtfSharesPage />)
+    await screen.findAllByText('沪深300ETF华泰柏瑞')
+
+    await user.click(screen.getAllByRole('button', { name: '煤炭价格' })[0])
+
+    expect(await screen.findByRole('heading', { name: '数据维护' })).toBeTruthy()
+    expect(screen.getByText('共 5 条')).toBeTruthy()
+    expect(screen.getAllByText('2026-10-14').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('1003').length).toBeGreaterThan(0)
+
+    await user.click(screen.getByRole('button', { name: /新增数据/ }))
+    expect(
+      await screen.findByRole('heading', { name: '新增煤炭价格' }),
+    ).toBeTruthy()
+
+    fireEvent.change(screen.getByLabelText('日期'), {
+      target: { value: '2026-10-15' },
+    })
+    fireEvent.change(screen.getByLabelText('价格（元/吨）'), {
+      target: { value: '1020' },
+    })
+    await user.click(screen.getByRole('button', { name: '保存' }))
+
+    await waitFor(() =>
+      expect(vi.mocked(fetchAPI)).toHaveBeenCalledWith(
+        '/etf-shares/coal/points',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ date: '2026-10-15', price: 1020 }),
+        }),
+      ),
+    )
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('heading', { name: '新增煤炭价格' }),
+      ).toBeNull(),
+    )
+    await waitFor(() =>
+      expect(
+        vi
+          .mocked(fetchAPI)
+          .mock.calls.filter(
+            (call) =>
+              String(call[0]).includes('group=coalPrice') &&
+              String(call[0]).includes('full=1'),
+          ).length,
+      ).toBeGreaterThanOrEqual(2),
+    )
+  })
+
+  it('edits an existing coal price with the original date', async () => {
+    const user = userEvent.setup()
+    render(<EtfSharesPage />)
+    await screen.findAllByText('沪深300ETF华泰柏瑞')
+
+    await user.click(screen.getAllByRole('button', { name: '煤炭价格' })[0])
+    const editButtons = await screen.findAllByRole('button', { name: '编辑' })
+    await user.click(editButtons[0])
+
+    expect(
+      await screen.findByRole('heading', { name: '编辑煤炭价格' }),
+    ).toBeTruthy()
+    const dateInput = screen.getByLabelText('日期') as HTMLInputElement
+    const priceInput = screen.getByLabelText('价格（元/吨）') as HTMLInputElement
+    expect(dateInput.value).toBe('2026-10-14')
+    expect(priceInput.value).toBe('1018')
+
+    await user.clear(priceInput)
+    await user.type(priceInput, '1020')
+    await user.click(screen.getByRole('button', { name: '保存' }))
+
+    await waitFor(() =>
+      expect(vi.mocked(fetchAPI)).toHaveBeenCalledWith(
+        '/etf-shares/coal/points/2026-10-14',
+        expect.objectContaining({
+          method: 'PUT',
+          body: JSON.stringify({ date: '2026-10-14', price: 1020 }),
+        }),
+      ),
+    )
+  })
+
+  it('blocks duplicate coal dates before calling the API', async () => {
+    const user = userEvent.setup()
+    render(<EtfSharesPage />)
+    await screen.findAllByText('沪深300ETF华泰柏瑞')
+
+    await user.click(screen.getAllByRole('button', { name: '煤炭价格' })[0])
+    await screen.findByRole('heading', { name: '数据维护' })
+    await user.click(screen.getByRole('button', { name: /新增数据/ }))
+
+    fireEvent.change(screen.getByLabelText('日期'), {
+      target: { value: '2026-10-14' },
+    })
+    fireEvent.change(screen.getByLabelText('价格（元/吨）'), {
+      target: { value: '1020' },
+    })
+    await user.click(screen.getByRole('button', { name: '保存' }))
+
+    expect(
+      await screen.findByText('该日期已有煤炭价格，请直接编辑已有记录。'),
+    ).toBeTruthy()
+    expect(
+      vi.mocked(fetchAPI).mock.calls.some(
+        (call) => call[0] === '/etf-shares/coal/points',
+      ),
+    ).toBe(false)
+  })
+
+  it('renders a planned group without requesting share data', async () => {
+    const user = userEvent.setup()
+    render(<EtfSharesPage />)
+    await screen.findAllByText('沪深300ETF华泰柏瑞')
+
+    const entries = screen.getAllByRole('button', { name: '电解铝·氧化铝' })
+    await user.click(entries[0])
+
     expect(await screen.findByText(/该分组的数据源尚未接入/)).toBeTruthy()
     expect(screen.getAllByText('待接入').length).toBeGreaterThan(0)
     expect(screen.queryByRole('button', { name: /刷新数据/ })).toBeNull()
     expect(
-      vi.mocked(fetchAPI).mock.calls.some((call) => String(call[0]).includes('group=coalPrice')),
+      vi.mocked(fetchAPI).mock.calls.some((call) => String(call[0]).includes('group=aluminum')),
     ).toBe(false)
   })
 
