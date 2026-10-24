@@ -1583,3 +1583,22 @@ class AluminumInventoryPoint(Base):
     factory_wan = Column(Float)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class ThreeGorgesWaterPoint(Base):
+    """三峡水库坝前水位、蓄水量与出入库流量（每日 8 时观测）。"""
+
+    __tablename__ = "three_gorges_water_points"
+    __table_args__ = (
+        UniqueConstraint("report_date", name="uq_three_gorges_water_points_report_date"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    report_date = Column(String(10), nullable=False)
+    observed_at = Column(String(16), nullable=False)
+    level_m = Column(Float)
+    storage_yi_m3 = Column(Float)
+    inflow_m3s = Column(Float)
+    outflow_m3s = Column(Float)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())

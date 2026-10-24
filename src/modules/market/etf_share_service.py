@@ -130,7 +130,6 @@ GROUPS: tuple[GroupDef, ...] = (
         label="三峡水库水位",
         category="commodity",
         accent="#22c55e",
-        available=False,
     ),
 )
 _GROUP_BY_ID = {group.id: group for group in GROUPS}

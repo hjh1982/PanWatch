@@ -13,6 +13,7 @@ from src.modules.market import (
     coal_price_service,
     etf_share_service,
     margin_service,
+    three_gorges_service,
 )
 from src.modules.market.etf_share_service import catalog_payload
 from src.platform.persistence.database import get_db
@@ -46,6 +47,10 @@ def _load_curve(
     if group == aluminum_inventory_service.ALUMINUM_INVENTORY_GROUP_ID:
         return aluminum_inventory_service.get_curve_payload(
             db, group, days, force=force, full=full
+        )
+    if group == three_gorges_service.THREE_GORGES_GROUP_ID:
+        return three_gorges_service.get_curve_payload(
+            db, group, days, force=force
         )
     return etf_share_service.get_curve_payload(db, group, days, force=force)
 

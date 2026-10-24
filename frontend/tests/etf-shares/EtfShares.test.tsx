@@ -72,6 +72,14 @@ const catalog = {
       funds: [],
     },
     {
+      id: 'threeGorges',
+      label: '三峡水库水位',
+      category: 'commodity',
+      available: true,
+      accent: '#22c55e',
+      funds: [],
+    },
+    {
       id: 'goldReserves',
       label: '黄金储备',
       category: 'commodity',
@@ -229,6 +237,43 @@ const inventoryCurve = {
   coverage: { trading_days: 3, target: 3, complete: true },
 }
 
+const threeGorgesCurve = {
+  group: 'threeGorges',
+  group_label: '三峡水库水位',
+  scope: '湖北水文 · 三峡站 60106980',
+  as_of: '2026-10-23 08',
+  dates: ['2026-10-21', '2026-10-22', '2026-10-23'],
+  metrics: [
+    {
+      id: 'level',
+      latest: 174.77,
+      latest_date: '2026-10-23',
+      delta: -0.09,
+      delta_pct: -0.0515,
+    },
+    {
+      id: 'inflow',
+      latest: 10900,
+      latest_date: '2026-10-23',
+      delta: -900,
+      delta_pct: -7.6271,
+    },
+    {
+      id: 'outflow',
+      latest: 13400,
+      latest_date: '2026-10-23',
+      delta: 4240,
+      delta_pct: 46.2882,
+    },
+  ],
+  series: {
+    level: [174.86, 174.86, 174.77],
+    inflow: [11800, 11800, 10900],
+    outflow: [9160, 9160, 13400],
+  },
+  coverage: { trading_days: 3, target: 3, complete: true },
+}
+
 const marginCurve = {
   group: 'margin',
   group_label: '融资融券',
@@ -304,6 +349,9 @@ beforeEach(() => {
     if (path.includes('/curve?group=margin')) return Promise.resolve(marginCurve)
     if (path.includes('/curve?group=aluminumInventory')) {
       return Promise.resolve(inventoryCurve)
+    }
+    if (path.includes('/curve?group=threeGorges')) {
+      return Promise.resolve(threeGorgesCurve)
     }
     if (path.includes('/curve?group=aluminum')) return Promise.resolve(aluminumCurve)
     if (path.includes('/curve?group=coalPrice')) return Promise.resolve(coalCurve)
@@ -626,6 +674,42 @@ describe('ETF share tracker page', () => {
     expect(
       vi.mocked(fetchAPI).mock.calls.some((call) =>
         String(call[0]).includes('group=aluminumInventory&days=90&full=1'),
+      ),
+    ).toBe(true)
+  })
+
+  it('renders the Three Gorges reservoir dashboard', async () => {
+    const user = userEvent.setup()
+    render(<EtfSharesPage />)
+    await screen.findAllByText('沪深300ETF华泰柏瑞')
+
+    const entries = screen.getAllByRole('button', { name: '三峡水库水位' })
+    await user.click(entries[0])
+
+    expect(
+      await screen.findByRole('heading', { name: '三峡水库水位 · 坝前' }),
+    ).toBeTruthy()
+    for (const label of ['库水位', '入库流量', '出库流量']) {
+      expect(screen.getAllByText(label).length).toBeGreaterThan(0)
+    }
+    expect(screen.getAllByText('174.77').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('10900').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('13400').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('立方米/秒').length).toBeGreaterThan(0)
+    expect(screen.getByText(/数据更新：2026-10-23 08/)).toBeTruthy()
+    expect(screen.getByText(/（共 3 天）/)).toBeTruthy()
+    expect(screen.getByRole('combobox', { name: '近 90 天' })).toBeTruthy()
+    expect(screen.getByRole('img', { name: '坝前水位走势' })).toBeTruthy()
+    expect(screen.getByRole('img', { name: '入库 vs 出库流量' })).toBeTruthy()
+    expect(screen.queryByText('蓄水量')).toBeNull()
+    expect(screen.queryByText('亿立方米')).toBeNull()
+    expect(screen.queryByRole('img', { name: '蓄水量走势' })).toBeNull()
+    expect(screen.queryByRole('img', { name: '日水位变化' })).toBeNull()
+    expect(screen.getByText(/湖北水文三峡站/)).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: '每日份额变化量' })).toBeNull()
+    expect(
+      vi.mocked(fetchAPI).mock.calls.some((call) =>
+        String(call[0]).endsWith('group=threeGorges&days=90'),
       ),
     ).toBe(true)
   })

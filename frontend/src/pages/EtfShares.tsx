@@ -194,6 +194,21 @@ const ALUMINUM_INVENTORY_METRIC_KEYS = {
   factory: 'etfShares.aluminumInventory.metrics.factory',
   total: 'etfShares.aluminumInventory.metrics.total',
 } as const
+const THREE_GORGES_METRIC_COLORS: Record<string, string> = {
+  level: '#0284c7',
+  inflow: '#f59e0b',
+  outflow: '#6366f1',
+}
+const THREE_GORGES_METRIC_KEYS = {
+  level: 'etfShares.threeGorges.metrics.level',
+  inflow: 'etfShares.threeGorges.metrics.inflow',
+  outflow: 'etfShares.threeGorges.metrics.outflow',
+} as const
+const THREE_GORGES_METRIC_UNITS = {
+  level: 'etfShares.threeGorges.units.level',
+  inflow: 'etfShares.threeGorges.units.flow',
+  outflow: 'etfShares.threeGorges.units.flow',
+} as const
 const YEAR_COLORS = ['#94a3b8', '#8b5cf6', '#3b82f6', '#f59e0b', '#059669']
 const GROUP_LABEL_KEYS = {
   hs300: 'etfShares.groups.hs300',
@@ -1406,6 +1421,7 @@ function PriceSpreadChart({
   emptyText,
   unitLabel,
   valueUnit,
+  valueDigits = 0,
   ariaLabel,
 }: {
   dates: string[]
@@ -1413,6 +1429,7 @@ function PriceSpreadChart({
   emptyText: string
   unitLabel: string
   valueUnit: string
+  valueDigits?: number
   ariaLabel: string
 }) {
   const [hoverIndex, setHoverIndex] = useState<number | null>(null)
@@ -1578,7 +1595,7 @@ function PriceSpreadChart({
         >
           <div className="font-mono text-[11px] text-muted-foreground">{dates[hoverIndex]}</div>
           <div className={`mt-1 font-mono text-[11px] font-medium ${marketSignTextClass(hoverValue)}`}>
-            {formatValue(hoverValue, 0)}
+            {formatValue(hoverValue, valueDigits)}
             {valueUnit ? ` ${valueUnit}` : ''}
           </div>
         </div>
@@ -2215,6 +2232,143 @@ function AluminumInventoryDashboard({ data }: { data: MetricsPayload }) {
 
       <p className="px-1 text-[11px] text-muted-foreground/80">
         {t('etfShares.aluminumInventory.caveat')}
+      </p>
+    </div>
+  )
+}
+
+function ThreeGorgesDashboard({ data }: { data: MetricsPayload }) {
+  const { t } = useTranslation('configuration')
+  const level = data.series.level ?? []
+  const inflow = data.series.inflow ?? []
+  const outflow = data.series.outflow ?? []
+  const levelSeries: ChartSeries[] = [
+    {
+      code: 'level',
+      name: t('etfShares.threeGorges.metrics.level'),
+      color: THREE_GORGES_METRIC_COLORS.level,
+      values: level,
+      filled: true,
+    },
+  ]
+  const flowSeries: ChartSeries[] = [
+    {
+      code: 'inflow',
+      name: t('etfShares.threeGorges.metrics.inflow'),
+      color: THREE_GORGES_METRIC_COLORS.inflow,
+      values: inflow,
+    },
+    {
+      code: 'outflow',
+      name: t('etfShares.threeGorges.metrics.outflow'),
+      color: THREE_GORGES_METRIC_COLORS.outflow,
+      values: outflow,
+    },
+  ]
+
+  return (
+    <div className="space-y-4">
+      <section className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+        {data.metrics.map((metric) => {
+          const key =
+            THREE_GORGES_METRIC_KEYS[
+              metric.id as keyof typeof THREE_GORGES_METRIC_KEYS
+            ]
+          const unitKey =
+            THREE_GORGES_METRIC_UNITS[
+              metric.id as keyof typeof THREE_GORGES_METRIC_UNITS
+            ]
+          const digits = metric.id === 'level' ? 2 : 0
+          return (
+            <MetricCard
+              key={metric.id}
+              metric={metric}
+              label={key ? t(key) : metric.id}
+              unit={unitKey ? t(unitKey) : ''}
+              color={THREE_GORGES_METRIC_COLORS[metric.id] ?? '#64748b'}
+              digits={digits}
+            />
+          )
+        })}
+      </section>
+
+      <section className="card overflow-hidden">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border/60 px-4 py-2.5">
+          <span
+            className="h-4 w-1 rounded"
+            style={{ backgroundColor: THREE_GORGES_METRIC_COLORS.level }}
+          />
+          <h2 className="text-[13px] font-semibold">
+            {t('etfShares.threeGorges.charts.levelTitle')}
+          </h2>
+          <span className="text-[11px] text-muted-foreground">
+            {t('etfShares.threeGorges.charts.levelHint')}
+          </span>
+          <div className="ml-auto">
+            <ChartLegend
+              items={[
+                {
+                  code: 'level',
+                  name: t('etfShares.threeGorges.metrics.level'),
+                  color: THREE_GORGES_METRIC_COLORS.level,
+                },
+              ]}
+            />
+          </div>
+        </div>
+        <div className="px-2 pb-2 pt-3 md:px-4">
+          <ShareChart
+            dates={data.dates}
+            series={levelSeries}
+            emptyText={t('etfShares.threeGorges.charts.empty')}
+            unitLabel={t('etfShares.threeGorges.charts.levelYUnit')}
+            ariaLabel={t('etfShares.threeGorges.charts.levelTitle')}
+            labelByName
+            valueUnit={t('etfShares.threeGorges.units.level')}
+            valueDigits={2}
+            sortTooltip={false}
+          />
+        </div>
+      </section>
+
+      <section className="card overflow-hidden">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border/60 px-4 py-2.5">
+          <span
+            className="h-4 w-1 rounded"
+            style={{ backgroundColor: THREE_GORGES_METRIC_COLORS.inflow }}
+          />
+          <h2 className="text-[13px] font-semibold">
+            {t('etfShares.threeGorges.charts.flowTitle')}
+          </h2>
+          <span className="text-[11px] text-muted-foreground">
+            {t('etfShares.threeGorges.charts.flowHint')}
+          </span>
+          <div className="ml-auto">
+            <ChartLegend
+              items={flowSeries.map((item) => ({
+                code: item.code,
+                name: item.name,
+                color: item.color,
+              }))}
+            />
+          </div>
+        </div>
+        <div className="px-2 pb-2 pt-3 md:px-4">
+          <ShareChart
+            dates={data.dates}
+            series={flowSeries}
+            emptyText={t('etfShares.threeGorges.charts.empty')}
+            unitLabel={t('etfShares.threeGorges.charts.flowYUnit')}
+            ariaLabel={t('etfShares.threeGorges.charts.flowTitle')}
+            labelByName
+            valueUnit={t('etfShares.threeGorges.units.flow')}
+            valueDigits={0}
+          />
+        </div>
+      </section>
+
+      <p className="px-1 text-[11px] text-muted-foreground/80">
+        {t('etfShares.threeGorges.caveat')}
       </p>
     </div>
   )
@@ -3097,33 +3251,40 @@ function EtfSharesPage() {
   const isCoalGroup = activeGroup?.id === 'coalPrice'
   const isAluminumGroup = activeGroup?.id === 'aluminum'
   const isInventoryGroup = activeGroup?.id === 'aluminumInventory'
+  const isThreeGorgesGroup = activeGroup?.id === 'threeGorges'
   const pageTitle = isCoalGroup
     ? t('etfShares.coal.title')
     : isInventoryGroup
       ? t('etfShares.aluminumInventory.title')
       : isAluminumGroup
         ? t('etfShares.aluminum.title')
-        : isMarginGroup
-          ? t('etfShares.margin.title')
-          : t('etfShares.title')
+        : isThreeGorgesGroup
+          ? t('etfShares.threeGorges.title')
+          : isMarginGroup
+            ? t('etfShares.margin.title')
+            : t('etfShares.title')
   const pageBadge = isCoalGroup
     ? t('etfShares.coal.badge')
     : isInventoryGroup
       ? t('etfShares.aluminumInventory.badge')
       : isAluminumGroup
         ? t('etfShares.aluminum.badge')
-        : isMarginGroup
-          ? t('etfShares.margin.badge')
-          : t('etfShares.badge')
+        : isThreeGorgesGroup
+          ? t('etfShares.threeGorges.badge')
+          : isMarginGroup
+            ? t('etfShares.margin.badge')
+            : t('etfShares.badge')
   const pageSubtitle = isCoalGroup
     ? t('etfShares.coal.subtitle')
     : isInventoryGroup
       ? t('etfShares.aluminumInventory.subtitle')
       : isAluminumGroup
         ? t('etfShares.aluminum.subtitle')
-        : isMarginGroup
-          ? t('etfShares.margin.subtitle')
-          : t('etfShares.subtitle')
+        : isThreeGorgesGroup
+          ? t('etfShares.threeGorges.subtitle')
+          : isMarginGroup
+            ? t('etfShares.margin.subtitle')
+            : t('etfShares.subtitle')
   const cardUnit = t('etfShares.unit')
   const chartTitle = t('etfShares.chart.title')
   const chartEmpty = t('etfShares.chart.empty')
@@ -3134,18 +3295,22 @@ function EtfSharesPage() {
       ? t('etfShares.aluminumInventory.loading')
       : isAluminumGroup
         ? t('etfShares.aluminum.loading')
-        : isMarginGroup
-          ? t('etfShares.margin.loading')
-          : t('etfShares.loading')
+        : isThreeGorgesGroup
+          ? t('etfShares.threeGorges.loading')
+          : isMarginGroup
+            ? t('etfShares.margin.loading')
+            : t('etfShares.loading')
   const noDataText = isCoalGroup
     ? t('etfShares.coal.noData')
     : isInventoryGroup
       ? t('etfShares.aluminumInventory.noData')
       : isAluminumGroup
         ? t('etfShares.aluminum.noData')
-        : isMarginGroup
-          ? t('etfShares.margin.noData')
-          : t('etfShares.errors.noData')
+        : isThreeGorgesGroup
+          ? t('etfShares.threeGorges.noData')
+          : isMarginGroup
+            ? t('etfShares.margin.noData')
+            : t('etfShares.errors.noData')
   const metricsCurve = isMetricsPayload(curve) ? curve : null
   const shareCurve = curve && !isMetricsPayload(curve) ? curve : null
   const hasData = metricsCurve
@@ -3156,7 +3321,10 @@ function EtfSharesPage() {
   const rangeOptions = (catalog?.allowed_days ?? [30, 60, 90, 120]).filter(
     (value) => value <= 250,
   )
-  const rangeLabel = (value: number) => t('etfShares.rangeDays', { count: value })
+  const rangeLabel = (value: number) =>
+    isThreeGorgesGroup
+      ? t('etfShares.threeGorges.rangeDays', { count: value })
+      : t('etfShares.rangeDays', { count: value })
   const categories = (['broad', 'commodity'] as const)
     .map((category) => ({
       id: category,
@@ -3235,6 +3403,10 @@ function EtfSharesPage() {
           ? t('etfShares.aluminumInventory.updatedCount', {
               count: curve.coverage.trading_days,
             })
+          : isThreeGorgesGroup
+            ? t('etfShares.threeGorges.updatedCount', {
+                count: curve.coverage.trading_days,
+              })
           : t('etfShares.updatedCount', { count: curve.coverage.trading_days })
       : ''
 
@@ -3365,6 +3537,8 @@ function EtfSharesPage() {
             <AluminumDashboard data={metricsCurve} />
           ) : isInventoryGroup && metricsCurve ? (
             <AluminumInventoryDashboard data={metricsCurve} />
+          ) : isThreeGorgesGroup && metricsCurve ? (
+            <ThreeGorgesDashboard data={metricsCurve} />
           ) : !hasData ? (
             <section className="card flex h-[320px] flex-col items-center justify-center gap-2 px-6 text-center">
               <p className="text-[13px] text-muted-foreground">{noDataText}</p>
