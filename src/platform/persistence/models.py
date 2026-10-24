@@ -1569,6 +1569,21 @@ class AluminumPricePoint(Base):
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
 
+class AluminumSpotPoint(Base):
+    """生意社日度现货铝价格（元/吨），用于上年同期对比。"""
+
+    __tablename__ = "aluminum_spot_points"
+    __table_args__ = (
+        UniqueConstraint("trade_date", name="uq_aluminum_spot_points_trade_date"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    trade_date = Column(String(10), nullable=False)
+    spot_price = Column(Float, nullable=False)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
 class AluminumInventoryPoint(Base):
     """Mysteel 电解铝社会库存与铝厂厂内库存（万吨）。"""
 

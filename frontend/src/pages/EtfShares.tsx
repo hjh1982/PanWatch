@@ -98,6 +98,10 @@ interface MetricsPayload {
   dates: string[]
   metrics: MarginMetric[]
   series: Record<string, Array<number | null>>
+  overlay?: {
+    dates: string[]
+    values: Array<number | null>
+  }
   coverage: Coverage
   storage?: CoalStorage
 }
@@ -181,8 +185,6 @@ const ALUMINUM_METRIC_KEYS = {
 } as const
 const ALUMINUM_A00_COLORS = {
   avg: '#e5484d',
-  low: '#94a3b8',
-  high: '#f59e0b',
 }
 const ALUMINUM_INVENTORY_METRIC_COLORS: Record<string, string> = {
   social: '#0ea5e9',
@@ -1859,33 +1861,9 @@ function AluminumDashboard({ data }: { data: MetricsPayload }) {
   const { t } = useTranslation('configuration')
   const unit = t('etfShares.aluminum.unit')
   const a00Avg = data.series.a00_avg ?? []
-  const a00Low = data.series.a00_low ?? []
-  const a00High = data.series.a00_high ?? []
   const aluminaAvg = data.series.alumina_avg ?? []
   const spread = data.series.spread ?? []
-  const a00Series: ChartSeries[] = [
-    {
-      code: 'a00_avg',
-      name: t('etfShares.aluminum.legend.average'),
-      color: ALUMINUM_A00_COLORS.avg,
-      values: a00Avg,
-      filled: true,
-    },
-    {
-      code: 'a00_low',
-      name: t('etfShares.aluminum.legend.low'),
-      color: ALUMINUM_A00_COLORS.low,
-      values: a00Low,
-      dashed: true,
-    },
-    {
-      code: 'a00_high',
-      name: t('etfShares.aluminum.legend.high'),
-      color: ALUMINUM_A00_COLORS.high,
-      values: a00High,
-      dashed: true,
-    },
-  ]
+  const overlay = data.overlay
   const aluminaSeries: ChartSeries[] = [
     {
       code: 'alumina_avg',
@@ -1918,43 +1896,43 @@ function AluminumDashboard({ data }: { data: MetricsPayload }) {
         })}
       </section>
 
-      <section className="card overflow-hidden">
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border/60 px-4 py-2.5">
-          <span
-            className="h-4 w-1 rounded"
-            style={{ backgroundColor: ALUMINUM_A00_COLORS.avg }}
-          />
-          <h2 className="text-[13px] font-semibold">
-            {t('etfShares.aluminum.charts.a00Title')}
-          </h2>
-          <span className="text-[11px] text-muted-foreground">
-            {t('etfShares.aluminum.charts.a00Hint')}
-          </span>
-          <div className="ml-auto">
-            <ChartLegend
-              items={a00Series.map((item) => ({
-                code: item.code,
-                name: item.name,
-                color: item.color,
-                dashed: item.dashed,
-              }))}
+      {overlay && overlay.dates.length > 0 && (
+        <section className="card overflow-hidden">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border/60 px-4 py-2.5">
+            <span
+              className="h-4 w-1 rounded"
+              style={{ backgroundColor: ALUMINUM_A00_COLORS.avg }}
+            />
+            <h2 className="text-[13px] font-semibold">
+              {t('etfShares.aluminum.charts.overlayTitle')}
+            </h2>
+            <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+              {t('etfShares.aluminum.charts.daily')}
+            </span>
+            <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+              {t('etfShares.aluminum.charts.overlay')}
+            </span>
+            {data.as_of && (
+              <span className="ml-auto font-mono text-[11px] text-muted-foreground">
+                {data.as_of}
+              </span>
+            )}
+          </div>
+          <div className="px-2 pb-2 pt-3 md:px-4">
+            <p className="mb-2 px-1 text-[11px] text-muted-foreground/80">
+              {t('etfShares.aluminum.charts.overlayHint')}
+            </p>
+            <YearOverlayChart
+              dates={overlay.dates}
+              values={overlay.values}
+              emptyText={t('etfShares.aluminum.charts.empty')}
+              unitLabel={t('etfShares.aluminum.charts.a00YUnit')}
+              valueUnit={unit}
+              ariaLabel={t('etfShares.aluminum.charts.overlayAria')}
             />
           </div>
-        </div>
-        <div className="px-2 pb-2 pt-3 md:px-4">
-          <ShareChart
-            dates={data.dates}
-            series={a00Series}
-            emptyText={t('etfShares.aluminum.charts.empty')}
-            unitLabel={t('etfShares.aluminum.charts.a00YUnit')}
-            ariaLabel={t('etfShares.aluminum.charts.a00Title')}
-            labelByName
-            valueUnit={unit}
-            valueDigits={0}
-            sortTooltip={false}
-          />
-        </div>
-      </section>
+        </section>
+      )}
 
       <div className="grid gap-4 xl:grid-cols-2">
         <section className="card overflow-hidden">

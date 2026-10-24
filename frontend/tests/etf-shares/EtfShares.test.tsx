@@ -196,6 +196,17 @@ const aluminumCurve = {
     alumina_avg: [2740, 2735, 2730],
     spread: [20940, 20965, 20980],
   },
+  overlay: {
+    dates: [
+      '2026-10-20',
+      '2025-10-20',
+      '2026-10-21',
+      '2025-10-21',
+      '2026-10-22',
+      '2025-10-22',
+    ],
+    values: [23680, 20500, 23700, 20550, 23710, 20600],
+  },
   coverage: { trading_days: 3, target: 3, complete: true },
 }
 
@@ -632,13 +643,21 @@ describe('ETF share tracker page', () => {
     expect(screen.getAllByText('20980').length).toBeGreaterThan(0)
     expect(screen.getAllByText('元/吨').length).toBeGreaterThan(0)
     expect(
-      screen.getByRole('img', { name: 'A00 铝价格走势（元/吨）' }),
-    ).toBeTruthy()
+      screen.queryByRole('img', { name: 'A00 铝价格走势（元/吨）' }),
+    ).toBeNull()
     expect(
       screen.getByRole('img', { name: '氧化铝(山西)价格走势（元/吨）' }),
     ).toBeTruthy()
     expect(screen.getByRole('img', { name: '电解铝 vs 氧化铝价差' })).toBeTruthy()
     expect(screen.getByRole('img', { name: '价格对比（近20日）' })).toBeTruthy()
+    expect(
+      screen.getByRole('heading', { name: 'A00 铝价格走势图' }),
+    ).toBeTruthy()
+    expect(
+      screen.getByRole('img', { name: 'A00 铝价格按年叠加走势' }),
+    ).toBeTruthy()
+    expect(screen.getAllByText('2025').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('2026').length).toBeGreaterThan(0)
     expect(screen.queryByRole('heading', { name: '每日份额变化量' })).toBeNull()
     expect(
       vi.mocked(fetchAPI).mock.calls.some((call) =>

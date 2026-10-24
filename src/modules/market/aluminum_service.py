@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import re
 import threading
 import time
@@ -14,11 +15,12 @@ from zoneinfo import ZoneInfo
 
 import httpx
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from src.modules.market.etf_share_service import _require_group, today_cn
 from src.platform.marketdata.collectors.market_http import market_get
-from src.platform.persistence.models import AluminumPricePoint
+from src.platform.persistence.models import AluminumPricePoint, AluminumSpotPoint
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +36,7 @@ _CNAL_HEADERS = {
 }
 _CNAL_SELECT_ID = "3"  # 有色宝长江「铝」
 _PPI_LIST_URL = "https://www.100ppi.com/news/list-12--62-{page}.html"
+_PPI_SPOT_URL = "https://www.100ppi.com/sf/day-{day}.html"
 _PPI_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
     "Referer": "https://al.100ppi.com/",
@@ -51,8 +54,18 @@ _PPI_LINK = re.compile(
     r'[^>]*class="blueq">([^<]*中铝氧化铝[^<]*)</a>'
 )
 _PPI_SHANXI = re.compile(r"山西地区氧化铝现货对外报价\s*([0-9]+(?:\.[0-9]+)?)\s*元/吨")
+_PPI_SPOT_ALUMINUM = re.compile(
+    r'<td><a href="https://www\.100ppi\.com/sf/827\.html"[^>]*>铝</a></td>'
+    r"\s*<td>\s*([0-9]+(?:\.[0-9]+)?)",
+    re.S,
+)
 
-_state = {"last_sync": 0.0, "lock": threading.Lock()}
+_state = {
+    "last_sync": 0.0,
+    # monotonic 从开机计时，-inf 表示从未同步过。
+    "spot_sync_at": -math.inf,
+    "lock": threading.Lock(),
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -199,6 +212,103 @@ def fetch_ppi_alumina(
     return values
 
 
+def parse_ppi_spot(html: str) -> float | None:
+    """解析生意社「商品现货与期货价格对比表」中的铝现货价。"""
+    match = _PPI_SPOT_ALUMINUM.search(html)
+    if not match:
+        return None
+    value = _to_float(match.group(1))
+    return value if value and value > 0 else None
+
+
+def _fetch_ppi_spot(day: str) -> float | None:
+    html = market_get(
+        _PPI_SPOT_URL.format(day=day),
+        host_key="www.100ppi.com",
+        headers=_PPI_HEADERS,
+        min_interval_s=0.12,
+        timeout=12.0,
+        total_timeout=30.0,
+        retries=1,
+        log_label="aluminum-spot",
+    )
+    return parse_ppi_spot(html or "")
+
+
+def _shift_year(day: str) -> str | None:
+    try:
+        current = datetime.strptime(day, "%Y-%m-%d").date()
+    except ValueError:
+        return None
+    try:
+        shifted = current.replace(year=current.year - 1)
+    except ValueError:  # 2 月 29 日
+        shifted = current.replace(year=current.year - 1, day=28)
+    return shifted.isoformat()
+
+
+def _window_dates(
+    rows: dict[str, dict[str, float | None]], days: int
+) -> list[str]:
+    all_dates = sorted(rows)
+    return all_dates[-days:] if days > 0 else all_dates
+
+
+def _sync_spot_rows(
+    db: Session, window_dates: list[str], *, force: bool
+) -> None:
+    prior_dates = [day for day in (_shift_year(item) for item in window_dates) if day]
+    if not prior_dates:
+        return
+    existing = {
+        str(day)
+        for (day,) in db.query(AluminumSpotPoint.trade_date)
+        .filter(AluminumSpotPoint.trade_date.in_(prior_dates))
+        .all()
+    }
+    missing = [
+        day
+        for day in dict.fromkeys(prior_dates)
+        if day not in existing
+        and datetime.strptime(day, "%Y-%m-%d").weekday() < 5
+    ]
+    if not missing:
+        return
+    if not force and time.monotonic() - _state["spot_sync_at"] < _SYNC_INTERVAL_S:
+        return
+
+    values: dict[str, float] = {}
+    with ThreadPoolExecutor(max_workers=_ARTICLE_WORKERS) as pool:
+        futures = {day: pool.submit(_fetch_ppi_spot, day) for day in missing}
+        for day, future in futures.items():
+            try:
+                value = future.result()
+            except Exception:  # noqa: BLE001 - 单日失败不影响其它日期
+                logger.warning("[电解铝] 读取现货铝历史价失败：%s", day)
+                continue
+            if value is not None:
+                values[day] = value
+    if values:
+        db.add_all(
+            [
+                AluminumSpotPoint(trade_date=day, spot_price=value)
+                for day, value in values.items()
+            ]
+        )
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+    _state["spot_sync_at"] = time.monotonic()
+
+
+def load_spot_rows(db: Session) -> dict[str, float]:
+    return {
+        str(record.trade_date): record.spot_price
+        for record in db.query(AluminumSpotPoint).all()
+    }
+
+
 def _sync_rows(db: Session, days: int, *, force: bool) -> None:
     today = today_cn()
     lookback = min(330, max(90, days * 2 + 30))
@@ -308,10 +418,12 @@ def _metric(
 def build_payload(
     rows: dict[str, dict[str, float | None]],
     days: int,
+    spot_rows: dict[str, float] | None = None,
 ) -> dict[str, Any]:
     group = _require_group(ALUMINUM_GROUP_ID)
     all_dates = sorted(rows)
-    dates = all_dates[-days:] if days > 0 else all_dates
+    dates = _window_dates(rows, days)
+    spot = spot_rows or {}
 
     a00_avg: list[float | None] = []
     a00_low: list[float | None] = []
@@ -356,6 +468,16 @@ def build_payload(
     as_of = max((metric["latest_date"] for metric in metrics), default=None)
     active_days = sum(1 for value in a00_avg if value is not None) or len(dates)
 
+    overlay_dates: list[str] = []
+    overlay_values: list[float | None] = []
+    for day, value in zip(dates, a00_avg):
+        overlay_dates.append(day)
+        overlay_values.append(value)
+        prior = _shift_year(day)
+        if prior is not None:
+            overlay_dates.append(prior)
+            overlay_values.append(spot.get(prior))
+
     return {
         "group": group.id,
         "group_label": group.label,
@@ -369,6 +491,10 @@ def build_payload(
             "a00_high": a00_high,
             "alumina_avg": alumina_avg,
             "spread": spread,
+        },
+        "overlay": {
+            "dates": overlay_dates,
+            "values": overlay_values,
         },
         "coverage": {
             "trading_days": active_days,
@@ -390,4 +516,7 @@ def get_curve_payload(
         if force or _needs_sync(db, days):
             _sync_rows(db, days, force=force)
             _state["last_sync"] = time.monotonic()
-    return build_payload(load_rows(db), days)
+        rows = load_rows(db)
+        _sync_spot_rows(db, _window_dates(rows, days), force=force)
+        spot_rows = load_spot_rows(db)
+    return build_payload(rows, days, spot_rows)
