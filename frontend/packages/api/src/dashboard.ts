@@ -35,6 +35,37 @@ export interface DashboardCommodity {
   change_pct: number | null
 }
 
+export type DashboardFearGreedLevel =
+  | 'extreme_fear'
+  | 'fear'
+  | 'neutral'
+  | 'greed'
+  | 'extreme_greed'
+
+export interface DashboardFearGreedPoint {
+  date: string
+  score: number
+}
+
+export interface DashboardFearGreed {
+  /** 读数所属交易日 */
+  date: string
+  /** 0–100，越高越偏贪婪 */
+  score: number
+  level: DashboardFearGreedLevel
+  /** 较前一交易日变化（点） */
+  change: number | null
+  shenzhen_index: number | null
+  /** 近 N 个交易日读数（升序），用于首页 mini 走势 */
+  history: DashboardFearGreedPoint[]
+  source: {
+    name: string
+    url: string
+    methodology: string
+    generated_at: string | null
+  }
+}
+
 export interface DashboardMarketStatus {
   code: string
   name: string
@@ -236,6 +267,9 @@ export const dashboardApi = {
   indices: () => fetchAPI<DashboardMarketIndex[]>('/market/indices'),
 
   commodities: () => fetchAPI<DashboardCommodity[]>('/market/commodities'),
+
+  fearGreed: (days = 30) =>
+    fetchAPI<DashboardFearGreed>(withQuery('/market/fear-greed', { days })),
 
   marketStatus: () => fetchAPI<DashboardMarketStatus[]>('/stocks/markets/status'),
 

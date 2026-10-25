@@ -1617,3 +1617,19 @@ class ThreeGorgesWaterPoint(Base):
     outflow_m3s = Column(Float)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class FearGreedPoint(Base):
+    """A 股恐贪指数（百分位，0–100）日度读数。"""
+
+    __tablename__ = "fear_greed_points"
+    __table_args__ = (
+        UniqueConstraint("trade_date", name="uq_fear_greed_points_trade_date"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    trade_date = Column(String(10), nullable=False)
+    score = Column(Float, nullable=False)
+    shenzhen_index = Column(Float)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())

@@ -3,10 +3,14 @@ import asyncio
 import logging
 import time
 import httpx
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, Query
+from sqlalchemy.orm import Session
 
+from src.modules.market import fear_greed_service
 from src.platform.marketdata.collectors.kline_collector import get_index_klines
 from src.platform.marketdata.models import MarketCode
+from src.platform.persistence.database import get_db
+from src.web.errors import api_error
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -278,3 +282,15 @@ async def get_commodities():
     result = await asyncio.to_thread(_build_commodities)
     _COMM_CACHE["commodities"] = (now, result)
     return result
+
+
+@router.get("/fear-greed")
+async def get_fear_greed(
+    days: int = Query(default=30, ge=5, le=365),
+    db: Session = Depends(get_db),
+):
+    """A 股恐贪指数（百分位，0–100）；数据源不可用时回退本地缓存。"""
+    try:
+        return await asyncio.to_thread(fear_greed_service.get_payload, db, days)
+    except fear_greed_service.FearGreedUnavailable as exc:
+        raise api_error(503, "fear_greed_unavailable", "A股恐贪指数暂不可用") from exc

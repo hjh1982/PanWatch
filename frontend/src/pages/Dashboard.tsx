@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
-import { AlertTriangle, Sparkles, Activity, ShieldAlert, Newspaper, Share2 } from 'lucide-react'
+import { AlertTriangle, Sparkles, Activity, ShieldAlert, Newspaper, Share2, Gauge } from 'lucide-react'
 import {
   dashboardApi,
   portfolioApi,
@@ -9,6 +9,8 @@ import {
   homeApi,
   type DashboardMarketIndex,
   type DashboardCommodity,
+  type DashboardFearGreed,
+  type DashboardFearGreedLevel,
   type DashboardMarketStatus,
   type DashboardMonitorStock,
   type DashboardOverviewResponse,
@@ -52,6 +54,105 @@ function pctChipCls(v?: number | null): string {
   if (v < 0) return 'bg-market-down/10 text-market-down'
   return 'bg-accent text-muted-foreground'
 }
+/** 恐贪五档配色：恐慌端冷绿，贪婪端暖红。 */
+const FEAR_GREED_STYLE: Record<DashboardFearGreedLevel, { text: string; chip: string }> = {
+  extreme_fear: { text: 'text-emerald-600', chip: 'bg-emerald-500/15 text-emerald-600' },
+  fear: { text: 'text-lime-600', chip: 'bg-lime-500/15 text-lime-600' },
+  neutral: { text: 'text-amber-600', chip: 'bg-amber-500/15 text-amber-600' },
+  greed: { text: 'text-orange-600', chip: 'bg-orange-500/15 text-orange-600' },
+  extreme_greed: { text: 'text-rose-600', chip: 'bg-rose-500/15 text-rose-600' },
+}
+
+/** 恐贪指数卡片：百分位 / 韭圈儿两个数据源共用同一展示。 */
+function FearGreedCard({ data, error, titleKey }: {
+  data: DashboardFearGreed | null
+  error: boolean
+  titleKey: string
+}) {
+  const { t } = useTranslation('configuration')
+  const dashboardT = t as unknown as (key: string, options?: Record<string, unknown>) => string
+  return (
+    <div className="card mb-3 px-3 py-2.5" title={dashboardT('dashboard.fearGreed.hint')}>
+      <div className="grid grid-cols-1 gap-2 md:grid-cols-[auto_minmax(0,1fr)_auto] md:items-center md:gap-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <Gauge className="h-4 w-4 text-muted-foreground" />
+          <span className="text-[12px] font-medium">{dashboardT(titleKey)}</span>
+          {data ? (
+            <>
+              <span className={`font-mono text-[22px] font-bold leading-none ${FEAR_GREED_STYLE[data.level].text}`}>
+                {data.score.toFixed(1)}
+              </span>
+              <span className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${FEAR_GREED_STYLE[data.level].chip}`}>
+                {dashboardT(`dashboard.fearGreed.level.${data.level}`)}
+              </span>
+              {data.change != null && (
+                <span
+                  className={`font-mono text-[11px] ${moveColor(data.change)}`}
+                  title={dashboardT('dashboard.fearGreed.change')}
+                >
+                  {data.change > 0 ? '+' : ''}{data.change.toFixed(1)}
+                </span>
+              )}
+            </>
+          ) : (
+            <span className="text-[11px] text-muted-foreground">
+              {error ? dashboardT('dashboard.fearGreed.unavailable') : dashboardT('dashboard.loading')}
+            </span>
+          )}
+        </div>
+
+        {data && (
+          <>
+            <div className="min-w-0">
+              <div
+                className="relative h-1.5 rounded-full"
+                style={{ background: 'linear-gradient(90deg,#00b451 0 25%,#85d700 25% 45%,#ffcc00 45% 55%,#ff7e00 55% 75%,#d0021b 75% 100%)' }}
+              >
+                <span
+                  className="absolute top-1/2 h-3 w-[3px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-foreground shadow-sm"
+                  style={{ left: `${Math.min(100, Math.max(0, data.score))}%` }}
+                />
+              </div>
+              <div className="mt-1 flex justify-between font-mono text-[9px] text-muted-foreground">
+                <span>{dashboardT('dashboard.fearGreed.fearSide')}</span>
+                <span>{dashboardT('dashboard.fearGreed.greedSide')}</span>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 md:justify-end">
+              <Sparkline
+                data={data.history.map((point) => point.score)}
+                height={26}
+                className="w-24 text-muted-foreground"
+              />
+              <div className="text-right text-[10px] leading-tight text-muted-foreground">
+                <div className="font-mono">{dashboardT('dashboard.fearGreed.asOf', { date: data.date })}</div>
+                <a
+                  href={data.source.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="hover:text-primary"
+                  title={data.source.methodology}
+                >
+                  {data.source.name}
+                </a>
+                <a
+                  href="https://funddb.cn/tool/fear"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-0.5 block hover:text-primary"
+                  title={dashboardT('dashboard.fearGreed.compareHint')}
+                >
+                  {dashboardT('dashboard.fearGreed.compare')}
+                </a>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
 /** 商品价格格式化：沪铝主连为整数，离岸人民币四位小数，其余保留两位小数。 */
 function formatCommodityPrice(cm: DashboardCommodity): string {
   if (cm.current_price == null) return '--'
@@ -111,6 +212,8 @@ export default function DashboardPage() {
   const benchLoadId = useRef(0)
   const [indices, setIndices] = useState<DashboardMarketIndex[]>([])
   const [commodities, setCommodities] = useState<DashboardCommodity[]>([])
+  const [fearGreed, setFearGreed] = useState<DashboardFearGreed | null>(null)
+  const [fearGreedError, setFearGreedError] = useState(false)
   const [autoRefresh, setAutoRefresh] = useState(false)
   const [monitorSnapshot, setMonitorSnapshot] = useState<DashboardMonitorStock[]>([])
   const [overview, setOverview] = useState<DashboardOverviewResponse | null>(null)
@@ -170,6 +273,13 @@ export default function DashboardPage() {
 
     void publish(dashboardApi.indices(), setIndices)
     void publish(dashboardApi.commodities(), setCommodities)
+    void dashboardApi.fearGreed()
+      .then((value) => {
+        if (!current()) return
+        setFearGreed(value)
+        setFearGreedError(false)
+      })
+      .catch(() => { if (current()) setFearGreedError(true) })
     loadBench()
 
     // DB 简报无需等待行情；先展示返回的报告，再择新回填。
@@ -441,6 +551,9 @@ export default function DashboardPage() {
           ))}
         </div>
       </div>
+
+      {/* A股恐贪指数：百分位 0–100 情绪温度，另附不同口径的官方对照入口 */}
+      <FearGreedCard data={fearGreed} error={fearGreedError} titleKey="dashboard.fearGreed.title" />
 
       {/* 组合速览条:今日盈亏 hero + 累计浮盈 + 60日超额 + 仓位% + mini 净值走势 */}
       <div className="card mb-3 p-4">

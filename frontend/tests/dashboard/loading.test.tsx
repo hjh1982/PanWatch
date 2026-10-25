@@ -7,7 +7,7 @@ import DashboardPage from '@/pages/Dashboard'
 
 vi.mock('@panwatch/api', () => ({
   dashboardApi: {
-    indices: vi.fn(), commodities: vi.fn(), intradaySnapshot: vi.fn(), overview: vi.fn(), portfolioSummary: vi.fn(),
+    indices: vi.fn(), commodities: vi.fn(), fearGreed: vi.fn(), intradaySnapshot: vi.fn(), overview: vi.fn(), portfolioSummary: vi.fn(),
     marketStatus: vi.fn(), brief: vi.fn(), curate: vi.fn(),
   },
   portfolioApi: { diagnostics: vi.fn(), benchmark: vi.fn(), attribution: vi.fn() },
@@ -92,6 +92,41 @@ describe('dashboard progressive loading', () => {
     expect((await screen.findAllByText('机会标的')).length).toBeGreaterThan(0)
     expect(recommendationsApi.listStrategySignals).toHaveBeenCalledTimes(1)
     expect(dashboardApi.curate).not.toHaveBeenCalled()
+  })
+
+  it('renders the A-share fear & greed reading with level, change and source', async () => {
+    vi.mocked(dashboardApi.fearGreed).mockResolvedValue({
+      date: '2026-10-23',
+      score: 51.64,
+      level: 'neutral',
+      change: 25.66,
+      shenzhen_index: 11673.83,
+      history: [
+        { date: '2026-10-22', score: 25.98 },
+        { date: '2026-10-23', score: 51.64 },
+      ],
+      source: {
+        name: '百分位 baifenwei.com',
+        url: 'https://baifenwei.com/indicator/fear-greed/',
+        methodology: '六项子指标加权',
+        generated_at: '2026-10-24T14:00:34',
+      },
+    })
+    render(<MemoryRouter><DashboardPage /></MemoryRouter>)
+
+    expect(await screen.findByText('51.6')).toBeTruthy()
+    expect(screen.getByText('中性')).toBeTruthy()
+    expect(screen.getByText('数据日 2026-10-23')).toBeTruthy()
+    expect(screen.getByText('百分位 baifenwei.com')).toBeTruthy()
+    expect(screen.getByText('对照：韭圈儿 ↗').closest('a')?.getAttribute('href'))
+      .toBe('https://funddb.cn/tool/fear')
+  })
+
+  it('shows an unavailable note when fear & greed cannot load', async () => {
+    vi.mocked(dashboardApi.fearGreed).mockRejectedValue(new Error('offline'))
+    render(<MemoryRouter><DashboardPage /></MemoryRouter>)
+
+    expect(await screen.findByText('恐贪指数暂不可用')).toBeTruthy()
   })
 
   it('ignores the old benchmark response after a newer refresh finishes', async () => {

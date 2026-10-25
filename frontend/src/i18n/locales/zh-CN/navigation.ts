@@ -2,7 +2,7 @@ export const navigation = {
   items: {
     home: '首页',
     portfolio: '持仓',
-    etfShares: 'ETF份额',
+    etfShares: '统计数据',
     opportunities: '机会',
     paperTrading: '模拟盘',
     assistant: '助手',
