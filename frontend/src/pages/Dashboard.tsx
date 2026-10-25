@@ -1,11 +1,10 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
-import { AlertTriangle, Sparkles, Activity, ShieldAlert, Newspaper, Share2, Gauge } from 'lucide-react'
+import { AlertTriangle, Activity, ShieldAlert, Newspaper, Share2, Gauge } from 'lucide-react'
 import {
   dashboardApi,
   portfolioApi,
-  recommendationsApi,
   homeApi,
   type DashboardMarketIndex,
   type DashboardCommodity,
@@ -13,11 +12,9 @@ import {
   type DashboardFearGreedLevel,
   type DashboardMarketStatus,
   type DashboardMonitorStock,
-  type DashboardOverviewResponse,
   type DashboardPortfolioSummary,
   type PortfolioDiagnostics,
   type PortfolioBenchmark,
-  type StrategySignalItem,
   type AlertHitToday,
   type PortfolioTodo,
   type CurateCandidate,
@@ -31,6 +28,7 @@ import { useTranslation } from 'react-i18next'
 import { Onboarding } from '@panwatch/biz-ui/components/onboarding'
 import Sparkline from '@/components/Sparkline'
 import BenchChart from '@/components/BenchChart'
+import { HoldingAnnouncementsCard, PortfolioCalendarCard } from '@/components/PortfolioEventCards'
 import { formatNumber } from '@/i18n/format'
 import { marketSignTextClass } from '@/lib/market-colors'
 
@@ -207,7 +205,7 @@ export default function DashboardPage() {
   const dashboardT = t as unknown as (key: string, options?: Record<string, unknown>) => string
   const [loading, setLoading] = useState(true)
   const [holdingsLoading, setHoldingsLoading] = useState(true)
-  const [opportunitiesLoading, setOpportunitiesLoading] = useState(true)
+  const [hasWatchlist, setHasWatchlist] = useState(false)
   const loadId = useRef(0)
   const benchLoadId = useRef(0)
   const [indices, setIndices] = useState<DashboardMarketIndex[]>([])
@@ -216,11 +214,9 @@ export default function DashboardPage() {
   const [fearGreedError, setFearGreedError] = useState(false)
   const [autoRefresh, setAutoRefresh] = useState(false)
   const [monitorSnapshot, setMonitorSnapshot] = useState<DashboardMonitorStock[]>([])
-  const [overview, setOverview] = useState<DashboardOverviewResponse | null>(null)
   const [diag, setDiag] = useState<PortfolioDiagnostics | null>(null)
   const [bench, setBench] = useState<PortfolioBenchmark | null>(null)
   const [benchState, setBenchState] = useState<'loading' | 'ready' | 'empty' | 'error'>('loading')
-  const [oppFallback, setOppFallback] = useState<StrategySignalItem[]>([])
   const [alertHits, setAlertHits] = useState<AlertHitToday[]>([])
   const [todos, setTodos] = useState<PortfolioTodo[]>([])
   const [curated, setCurated] = useState<{ key: string; items: CuratedItem[] }>({ key: '', items: [] })
@@ -266,13 +262,13 @@ export default function DashboardPage() {
     const current = () => id === loadId.current
     setLoading(true)
     setHoldingsLoading(true)
-    setOpportunitiesLoading(true)
     // 每项成功后立即显示；刷新/离开页面后丢弃旧请求结果。
     const publish = <T,>(request: Promise<T>, apply: (value: T) => void) =>
       request.then((value) => { if (current()) apply(value) }).catch(() => {})
 
     void publish(dashboardApi.indices(), setIndices)
     void publish(dashboardApi.commodities(), setCommodities)
+    void publish(dashboardApi.watchlist(), (value) => setHasWatchlist(value.length > 0))
     void dashboardApi.fearGreed()
       .then((value) => {
         if (!current()) return
@@ -293,25 +289,8 @@ export default function DashboardPage() {
       }),
     )).then(() => { if (current() && !latestBrief) setBrief(null) })
 
-    const opportunitiesRequest = (async () => {
-      try {
-        const value = await dashboardApi.overview({ market: 'ALL', action_limit: 6, risk_limit: 6 })
-        if (!current()) return
-        setOverview(value)
-        if (value.action_center?.opportunities?.length) {
-          setOppFallback([])
-          return
-        }
-      } catch { /* 保留原有策略机会兜底。 */ }
-      if (current()) await publish(
-        recommendationsApi.listStrategySignals({ status: 'active', limit: 5 }),
-        (value) => setOppFallback(value.items || []),
-      )
-    })().finally(() => { if (current()) setOpportunitiesLoading(false) })
-
     await Promise.allSettled([
       publish(dashboardApi.intradaySnapshot(), (value) => setMonitorSnapshot(value.stocks || [])),
-      opportunitiesRequest,
       publish(portfolioApi.diagnostics(), setDiag).finally(() => { if (current()) setHoldingsLoading(false) }),
       publish(homeApi.alertHitsToday(), setAlertHits),
       publish(homeApi.todos(), (value) => setTodos(value.todos || [])),
@@ -373,11 +352,6 @@ export default function DashboardPage() {
     return items.sort((a, b) => weight(b) - weight(a)).slice(0, 8)
   }, [monitorSnapshot])
 
-  const opportunities = useMemo(() => {
-    const list = overview?.action_center?.opportunities?.length ? overview.action_center.opportunities : oppFallback
-    return list.slice(0, 5)
-  }, [overview, oppFallback])
-
   const localizedDiagnosticAlerts = useMemo(() => {
     if (!diag) return []
     if (!diag.alert_details?.length) return diag.alerts || []
@@ -417,13 +391,6 @@ export default function DashboardPage() {
     return todo.message
   }
 
-  const opportunityActionLabel = (action: string, fallback: string): string => {
-    if (!action) return fallback
-    const key = `dashboardRuntime.actions.${action.toLowerCase()}`
-    const translated = dashboardT(key)
-    return translated === key ? fallback : translated
-  }
-
   const briefLabel = brief?.type
     ? dashboardT(`dashboardRuntime.briefTypes.${brief.type}`, { defaultValue: brief.agent_label })
     : brief?.agent_label
@@ -445,11 +412,8 @@ export default function DashboardPage() {
       })
     }
     for (const a of localizedDiagnosticAlerts) out.push({ type: 'risk', name: dashboardT('dashboard.health'), market: '', signal: a })
-    for (const o of opportunities.slice(0, 3)) {
-      out.push({ type: 'opportunity', symbol: o.stock_symbol, name: o.stock_name || o.stock_symbol, market: o.stock_market, signal: o.signal || o.reason || o.action_label || '' })
-    }
     return out
-  }, [alertHits, urgent, localizedDiagnosticAlerts, opportunities])
+  }, [alertHits, urgent, localizedDiagnosticAlerts])
 
   const candKey = useMemo(
     () => JSON.stringify(candidates),
@@ -488,8 +452,16 @@ export default function DashboardPage() {
     return `${d.getFullYear()}-${mm}-${dd}`
   }, [])
   const hasHoldings = (diag?.position_count ?? 0) > 0
+  const holdingNames = useMemo(
+    () => Array.from(new Set(
+      (portfolioSummary?.accounts || [])
+        .flatMap(a => a.positions)
+        .map(p => p.name)
+        .filter(Boolean),
+    )),
+    [portfolioSummary],
+  )
   const benchReady = bench && !bench.empty && bench.excess_return != null
-  const hasWatchlist = (overview?.kpis?.watchlist_count ?? 0) > 0
   const portfolioPnlPct =
     diag && diag.total_market_value - diag.total_unrealized_pnl > 0
       ? (diag.total_unrealized_pnl / (diag.total_market_value - diag.total_unrealized_pnl)) * 100
@@ -644,7 +616,15 @@ export default function DashboardPage() {
         ))}
       </div>
 
-      {/* 主体:要紧事(7) | 体检(5);机会(5) | 简报(7) */}
+      {/* 持仓公告 + 事件日历 */}
+      {hasHoldings && (
+        <div className="mb-3 grid grid-cols-1 gap-3 lg:grid-cols-2">
+          <HoldingAnnouncementsCard names={holdingNames} ready={portfolioSummary !== null} />
+          <PortfolioCalendarCard />
+        </div>
+      )}
+
+      {/* 主体:要紧事(7) | 体检(5);简报(整行) */}
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-12">
         {/* 今日要紧事(主角) */}
         <div className="card p-4 lg:col-span-7">
@@ -689,8 +669,8 @@ export default function DashboardPage() {
           ) : (
             <div className="divide-y divide-border/40">
               {feed.map((it, i) => {
-                const badgeLabels: Record<string, string> = { alert: dashboardT('dashboard.feed.alert'), holding: dashboardT('dashboard.feed.holding'), watch: dashboardT('dashboard.feed.watch'), risk: dashboardT('dashboard.feed.risk'), opportunity: dashboardT('dashboard.feed.opportunity') }
-                const badgeClasses: Record<string, string> = { alert: 'bg-rose-500/15 text-rose-500', holding: 'bg-emerald-500/15 text-emerald-500', watch: 'bg-accent text-muted-foreground', risk: 'bg-amber-500/15 text-amber-600', opportunity: 'bg-primary/10 text-primary' }
+                const badgeLabels: Record<string, string> = { alert: dashboardT('dashboard.feed.alert'), holding: dashboardT('dashboard.feed.holding'), watch: dashboardT('dashboard.feed.watch'), risk: dashboardT('dashboard.feed.risk') }
+                const badgeClasses: Record<string, string> = { alert: 'bg-rose-500/15 text-rose-500', holding: 'bg-emerald-500/15 text-emerald-500', watch: 'bg-accent text-muted-foreground', risk: 'bg-amber-500/15 text-amber-600' }
                 const badge = { label: badgeLabels[it.type] || it.type, cls: badgeClasses[it.type] || 'bg-accent text-muted-foreground' }
                 return (
                   <div
@@ -873,57 +853,9 @@ export default function DashboardPage() {
           )}
         </div>
 
-        {/* 机会精选 */}
-        <div className="card p-4 lg:col-span-5">
-          <div className="mb-2 flex items-center justify-between">
-            <h2 className="flex items-center gap-2 text-sm font-semibold">
-              <Sparkles className="h-4 w-4 text-primary" />
-              {dashboardT('dashboard.opportunities')}
-            </h2>
-            <button
-              type="button"
-              className="text-[11px] text-muted-foreground hover:text-foreground"
-              onClick={() => navigate('/opportunities')}
-            >
-              {dashboardT('dashboard.opportunitiesPage')}
-            </button>
-          </div>
-          {opportunities.length === 0 ? (
-            <div className="py-6 text-center text-[12px] text-muted-foreground">{opportunitiesLoading ? dashboardT('dashboard.loading') : dashboardT('dashboard.noOpportunities')}</div>
-          ) : (
-            <div className="divide-y divide-border/40">
-              {opportunities.slice(0, 3).map((o) => {
-                const score = Math.max(0, Math.min(100, o.rank_score ?? o.score ?? 0))
-                return (
-                  <div
-                    key={`${o.stock_market}:${o.stock_symbol}`}
-                    className="flex cursor-pointer items-center gap-2 py-2 hover:bg-accent/30"
-                    onClick={() => openStock(o.stock_symbol, o.stock_market, o.stock_name || o.stock_symbol)}
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-1.5">
-                        <span className="truncate text-[13px] font-medium">{o.stock_name || o.stock_symbol}</span>
-                        {o.action_label && <span className="rounded bg-primary/10 px-1 text-[9px] text-primary">{opportunityActionLabel(o.action, o.action_label)}</span>}
-                      </div>
-                      {(o.signal || o.reason) && <div className="truncate text-[11px] text-muted-foreground">{o.signal || o.reason}</div>}
-                    </div>
-                    <div className="shrink-0 text-right">
-                      <div className="font-mono text-[13px] text-foreground">{score.toFixed(0)}</div>
-                      <div className="text-[9px] text-muted-foreground">{dashboardT('dashboard.score')}</div>
-                      <div className="mt-1 h-[3px] w-10 rounded bg-accent/40">
-                        <div className="h-[3px] rounded bg-primary/70" style={{ width: `${score}%` }} />
-                      </div>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </div>
-
         {/* 盘前/盘后简报 */}
         {brief && (brief.title || brief.content) && (
-          <div className="card p-4 lg:col-span-7">
+          <div className="card p-4 lg:col-span-12">
             <div className="mb-1 flex items-center justify-between gap-2">
               <h2 className="flex items-center gap-2 text-sm font-semibold">
                 <Newspaper className="h-4 w-4 text-primary" />

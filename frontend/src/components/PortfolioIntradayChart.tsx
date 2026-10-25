@@ -6,7 +6,7 @@ import { useMarketColors } from '@/hooks/use-market-colors'
 import { marketColorWithAlpha, marketDirection, marketSignTextClass } from '@/lib/market-colors'
 
 const WIDTH = 720
-const HEIGHT = 220
+const HEIGHT = 130
 const PAD = { top: 16, right: 14, bottom: 26, left: 62 }
 
 interface Props {
@@ -82,7 +82,7 @@ export function PortfolioIntradayChart({ points, baseline, emptyText }: Props) {
 
   if (!geometry) {
     return (
-      <div className="h-[180px] flex items-center justify-center text-muted-foreground text-sm">
+      <div className="h-[110px] flex items-center justify-center text-muted-foreground text-sm">
         {emptyText}
       </div>
     )

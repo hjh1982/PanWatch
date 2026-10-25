@@ -266,21 +266,11 @@ export default function StocksPage() {
   const [lastRefreshTime, setLastRefreshTime] = useState<Date | null>(null)
   const refreshTimerRef = useRef<ReturnType<typeof setInterval>>()
 
-  type ViewTab = 'positions' | 'announcements' | 'calendar' | 'watchlist'
+  type ViewTab = 'positions' | 'watchlist'
   const [viewTab, setViewTab] = useLocalStorage<ViewTab>('panwatch_stocks_viewTab', 'positions')
-
-  // 持仓事件日历
-  interface CalendarEvent {
-    date: string
-    type: 'dividend_record' | 'dividend_ex' | 'lift' | 'disclosure' | 'deadline'
-    symbol: string
-    name: string
-    title: string
-    detail: string
-  }
-  const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([])
-  const [calendarLoading, setCalendarLoading] = useState(false)
-  const [calendarFilter, setCalendarFilter] = useState<'all' | 'dividend' | 'lift' | 'deadline'>('all')
+  useEffect(() => {
+    if (viewTab !== 'positions' && viewTab !== 'watchlist') setViewTab('positions')
+  }, [viewTab, setViewTab])
 
   // 建议池建议（来自 /suggestions API）
   const [poolSuggestions, setPoolSuggestions] = useState<Record<string, PoolSuggestion>>({})
@@ -342,12 +332,6 @@ export default function StocksPage() {
   const [txnSummary, setTxnSummary] = useState<TxnSummary | null>(null)
   const [txnLoading, setTxnLoading] = useState(false)
 
-  // 持仓公告
-  const [holdingAnnouncements, setHoldingAnnouncements] = useState<NewsItem[]>([])
-  const [announcementsLoading, setAnnouncementsLoading] = useState(false)
-  const [announcementsLoaded, setAnnouncementsLoaded] = useState(false)
-  const [announcementsPage, setAnnouncementsPage] = useState(1)
-  const ANNOUNCEMENTS_PAGE_SIZE = 20
   const [positionDialogAccountId, setPositionDialogAccountId] = useState<number | null>(null)
   const [positionSearchQuery, setPositionSearchQuery] = useState('')
   const [positionSearchMarket, setPositionSearchMarket] = useState('')  // 搜索市场筛选
@@ -787,99 +771,6 @@ export default function StocksPage() {
       clearInterval(timer)
     }
   }, [intradayAccountId])
-
-  // Load all holding-stock announcements (eastmoney 公告源，30 天，上限 200 条)
-  const loadHoldingAnnouncements = useCallback(async () => {
-    setAnnouncementsLoading(true)
-    try {
-      const names = Array.from(new Set((portfolio?.accounts || []).flatMap(a => a.positions).map(p => p.name).filter(Boolean)))
-      if (!names.length) {
-        setHoldingAnnouncements([])
-        return
-      }
-      const params = new URLSearchParams({
-        names: names.join(','),
-        hours: '720',
-        limit: '200',
-        source: 'eastmoney',
-        filter_related: 'true',
-      })
-      const data = await fetchAPI<NewsItem[]>(`/news?${params}`)
-      setHoldingAnnouncements(data)
-      setAnnouncementsPage(1)
-    } catch (e) {
-      console.error('加载持仓公告失败:', e)
-    } finally {
-      setAnnouncementsLoading(false)
-      setAnnouncementsLoaded(true)
-    }
-  }, [portfolio])
-
-  // 排序：日期倒序，同日同股票的公告排在一起（按该组最新公告时间决定组内顺序）
-  const announcementGroups = useMemo(() => {
-    const groupMap = new Map<string, { date: string; stock: string; items: NewsItem[]; latest: number }>()
-    for (const item of holdingAnnouncements) {
-      const d = item.publish_time ? new Date(item.publish_time) : null
-      if (!d || isNaN(d.getTime())) continue
-      const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-      const stock = item.symbols?.[0] || item.title.split(/[:：]/)[0] || ''
-      const key = `${date}__${stock}`
-      const g = groupMap.get(key)
-      if (g) {
-        g.items.push(item)
-        if (d.getTime() > g.latest) g.latest = d.getTime()
-      } else {
-        groupMap.set(key, { date, stock, items: [item], latest: d.getTime() })
-      }
-    }
-    return Array.from(groupMap.values())
-      .sort((a, b) => b.latest - a.latest || (a.stock > b.stock ? 1 : -1))
-      .map(g => ({ ...g, items: g.items.sort((a, b) => new Date(b.publish_time).getTime() - new Date(a.publish_time).getTime()) }))
-  }, [holdingAnnouncements])
-
-  // 分页：保持同日同股的分组不被拆到两页，每页约 20 条
-  const pagedAnnouncementGroups = useMemo(() => {
-    const pages: typeof announcementGroups[] = []
-    let current: typeof announcementGroups = []
-    let count = 0
-    for (const g of announcementGroups) {
-      if (current.length > 0 && count + g.items.length > ANNOUNCEMENTS_PAGE_SIZE) {
-        pages.push(current)
-        current = []
-        count = 0
-      }
-      current.push(g)
-      count += g.items.length
-    }
-    if (current.length) pages.push(current)
-    return pages
-  }, [announcementGroups])
-
-  // 打开"持仓公告"Tab 时首次加载
-  useEffect(() => {
-    if (viewTab === 'announcements' && !announcementsLoaded && !announcementsLoading) {
-      void loadHoldingAnnouncements()
-    }
-  }, [viewTab, announcementsLoaded, announcementsLoading, loadHoldingAnnouncements])
-
-  // 持仓事件日历
-  const loadCalendar = useCallback(async () => {
-    setCalendarLoading(true)
-    try {
-      const res = await fetchAPI('/portfolio/calendar') as { events?: CalendarEvent[] }
-      setCalendarEvents(res.events || [])
-    } catch (e) {
-      console.error('Failed to load portfolio calendar:', e)
-    } finally {
-      setCalendarLoading(false)
-    }
-  }, [])
-
-  useEffect(() => {
-    if (viewTab === 'calendar' && calendarEvents.length === 0 && !calendarLoading) {
-      void loadCalendar()
-    }
-  }, [viewTab, calendarEvents.length, calendarLoading, loadCalendar])
 
   // Load news for specific stock or all watchlist
   const loadNews = useCallback(async (stockName?: string) => {
@@ -1778,40 +1669,40 @@ export default function StocksPage() {
       {/* Portfolio Total Summary */}
       {portfolioLoading && !portfolio ? (
         // 首次加载时显示骨架屏
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4">
           {[...Array(4)].map((_, i) => (
-            <div key={i} className="card p-4">
-              <div className="flex items-center gap-2 mb-2">
-                <Skeleton className="h-4 w-4 rounded" />
+            <div key={i} className="card px-3 py-2">
+              <div className="flex items-center gap-2 mb-1">
+                <Skeleton className="h-3.5 w-3.5 rounded" />
                 <Skeleton className="h-3 w-12" />
               </div>
-              <Skeleton className="h-6 w-20" />
+              <Skeleton className="h-5 w-20" />
             </div>
           ))}
         </div>
       ) : portfolio ? (
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
-          <div className="card p-4">
-            <div className="flex items-center gap-2 text-muted-foreground mb-1">
-              <TrendingUp className="w-4 h-4" />
-              <span className="text-[12px]">{stockT('stocksPage.messages.totalMarketValue')}</span>
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2 mb-4">
+          <div className="card px-3 py-2">
+            <div className="flex items-center gap-1.5 text-muted-foreground mb-0.5">
+              <TrendingUp className="w-3.5 h-3.5" />
+              <span className="text-[11px]">{stockT('stocksPage.messages.totalMarketValue')}</span>
             </div>
-            <div className="text-[20px] font-bold text-foreground font-mono">
+            <div className="text-[17px] font-bold text-foreground font-mono">
               {portfolioTotalsReady ? formatMoney(portfolio.total.total_market_value) : '--'}
             </div>
           </div>
-          <div className="card p-4">
-            <div className="flex items-center gap-2 text-muted-foreground mb-1">
+          <div className="card px-3 py-2">
+            <div className="flex items-center gap-1.5 text-muted-foreground mb-0.5">
               {portfolio.total.total_pnl >= 0 ? (
-                <ArrowUpRight className={`w-4 h-4 ${marketSignTextClass(portfolioTotalsReady ? portfolio.total.total_pnl : null)}`} />
+                <ArrowUpRight className={`w-3.5 h-3.5 ${marketSignTextClass(portfolioTotalsReady ? portfolio.total.total_pnl : null)}`} />
               ) : (
-                <ArrowDownRight className={`w-4 h-4 ${marketSignTextClass(portfolioTotalsReady ? portfolio.total.total_pnl : null)}`} />
+                <ArrowDownRight className={`w-3.5 h-3.5 ${marketSignTextClass(portfolioTotalsReady ? portfolio.total.total_pnl : null)}`} />
               )}
-              <span className="text-[12px]">{stockT('stocksPage.messages.totalPnl')}</span>
+              <span className="text-[11px]">{stockT('stocksPage.messages.totalPnl')}</span>
             </div>
-            <div className={`text-[20px] font-bold font-mono ${marketSignTextClass(portfolioTotalsReady ? portfolio.total.total_pnl : null)}`}>
+            <div className={`text-[17px] font-bold font-mono ${marketSignTextClass(portfolioTotalsReady ? portfolio.total.total_pnl : null)}`}>
               {portfolioTotalsReady ? `${portfolio.total.total_pnl >= 0 ? '+' : ''}${formatMoney(portfolio.total.total_pnl)}` : '--'}
-              {portfolioTotalsReady && <span className="block text-[13px] md:inline md:ml-1.5">
+              {portfolioTotalsReady && <span className="block text-[11px] md:inline md:ml-1">
                 ({portfolio.total.total_pnl_pct >= 0 ? '+' : ''}{portfolio.total.total_pnl_pct.toFixed(2)}%)
               </span>}
             </div>
@@ -1824,51 +1715,51 @@ export default function StocksPage() {
             const pct = prevMv > 0 ? (dayPnl / prevMv * 100) : 0
             const isUp = dayPnl >= 0
             return (
-              <div className="card p-4">
-                <div className="flex items-center gap-2 text-muted-foreground mb-1">
+              <div className="card px-3 py-2">
+                <div className="flex items-center gap-1.5 text-muted-foreground mb-0.5">
                   {isUp ? (
-                    <ArrowUpRight className={`w-4 h-4 ${marketSignTextClass(portfolioTotalsReady ? dayPnl : null)}`} />
+                    <ArrowUpRight className={`w-3.5 h-3.5 ${marketSignTextClass(portfolioTotalsReady ? dayPnl : null)}`} />
                   ) : (
-                    <ArrowDownRight className={`w-4 h-4 ${marketSignTextClass(portfolioTotalsReady ? dayPnl : null)}`} />
+                    <ArrowDownRight className={`w-3.5 h-3.5 ${marketSignTextClass(portfolioTotalsReady ? dayPnl : null)}`} />
                   )}
-                  <span className="text-[12px]">{stockT('stocksPage.messages.todayPnl')}</span>
+                  <span className="text-[11px]">{stockT('stocksPage.messages.todayPnl')}</span>
                 </div>
-                <div className={`text-[20px] font-bold font-mono ${marketSignTextClass(portfolioTotalsReady ? dayPnl : null)}`}>
+                <div className={`text-[17px] font-bold font-mono ${marketSignTextClass(portfolioTotalsReady ? dayPnl : null)}`}>
                   {portfolioTotalsReady ? `${isUp ? '+' : ''}${formatMoney(dayPnl)}` : '--'}
-                  {portfolioTotalsReady && <span className="block text-[13px] md:inline md:ml-1.5">({pct >= 0 ? '+' : ''}{pct.toFixed(2)}%)</span>}
+                  {portfolioTotalsReady && <span className="block text-[11px] md:inline md:ml-1">({pct >= 0 ? '+' : ''}{pct.toFixed(2)}%)</span>}
                 </div>
               </div>
             )
           })()}
 
-          <div className="card p-4">
-            <div className="flex items-center gap-2 text-muted-foreground mb-1">
-              <Wallet className="w-4 h-4" />
-              <span className="text-[12px]">{stockT('stocksPage.messages.availableFundsShort')}</span>
+          <div className="card px-3 py-2">
+            <div className="flex items-center gap-1.5 text-muted-foreground mb-0.5">
+              <Wallet className="w-3.5 h-3.5" />
+              <span className="text-[11px]">{stockT('stocksPage.messages.availableFundsShort')}</span>
             </div>
-            <div className="text-[20px] font-bold text-foreground font-mono">
+            <div className="text-[17px] font-bold text-foreground font-mono">
               {formatMoney(portfolio.total.available_funds)}
             </div>
           </div>
-          <div className="card p-4">
-            <div className="flex items-center gap-2 text-muted-foreground mb-1">
-              <PiggyBank className="w-4 h-4" />
-              <span className="text-[12px]">{stockT('stocksPage.messages.totalAssets')}</span>
+          <div className="card px-3 py-2">
+            <div className="flex items-center gap-1.5 text-muted-foreground mb-0.5">
+              <PiggyBank className="w-3.5 h-3.5" />
+              <span className="text-[11px]">{stockT('stocksPage.messages.totalAssets')}</span>
             </div>
-            <div className="text-[20px] font-bold text-foreground font-mono">
+            <div className="text-[17px] font-bold text-foreground font-mono">
               {portfolioTotalsReady ? formatMoney(portfolio.total.total_assets) : '--'}
             </div>
           </div>
 
-          <div className="card p-4">
-            <div className="flex items-center gap-2 text-muted-foreground mb-1">
-              <Bell className="w-4 h-4" />
-              <span className="text-[12px]">{stockT('stocksPage.messages.positionRatio')}</span>
+          <div className="card px-3 py-2">
+            <div className="flex items-center gap-1.5 text-muted-foreground mb-0.5">
+              <Bell className="w-3.5 h-3.5" />
+              <span className="text-[11px]">{stockT('stocksPage.messages.positionRatio')}</span>
             </div>
-            <div className="text-[20px] font-bold text-foreground font-mono">
+            <div className="text-[17px] font-bold text-foreground font-mono">
               {positionRatio ? `${positionRatio.pct.toFixed(1)}%` : '--'}
             </div>
-            <div className="mt-1 text-[11px] text-muted-foreground line-clamp-1">
+            <div className="mt-0.5 text-[10px] text-muted-foreground line-clamp-1">
               {positionRatio ? stockT('stocksPage.messages.positionValueSummary', { value: formatMoney(positionRatio.mv), assets: formatMoney(positionRatio.assets) }) : stockT('stocksPage.messages.empty')}
             </div>
           </div>
@@ -1876,8 +1767,8 @@ export default function StocksPage() {
       ) : null}
 
       {/* 日内市值曲线 */}
-      <div className="card p-4 mb-6">
-        <div className="mb-3 flex flex-wrap items-center gap-2">
+      <div className="card px-3 py-2.5 mb-4">
+        <div className="mb-2 flex flex-wrap items-center gap-2">
           <h2 className="text-sm font-semibold shrink-0">{stockT('stocksPage.intraday.title')}</h2>
           {intraday?.session_date ? (
             <span className="rounded bg-accent/60 px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
@@ -1949,26 +1840,6 @@ export default function StocksPage() {
             }`}
           >
             {stockT('stocksPage.messages.portfolio')} <span className="ml-1 font-mono text-[11px] opacity-70">{positionsCount}</span>
-          </button>
-          <button
-            onClick={() => setViewTab('announcements')}
-            className={`px-3 py-1.5 rounded-md text-[12px] transition-colors ${
-              viewTab === 'announcements'
-                ? 'bg-background text-foreground shadow-sm'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            {stockT('stocksPage.messages.holdingAnnouncements')}
-          </button>
-          <button
-            onClick={() => setViewTab('calendar')}
-            className={`px-3 py-1.5 rounded-md text-[12px] transition-colors ${
-              viewTab === 'calendar'
-                ? 'bg-background text-foreground shadow-sm'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            {stockT('stocksPage.messages.eventCalendar')}
           </button>
           <button
             onClick={() => setViewTab('watchlist')}
@@ -2517,188 +2388,6 @@ export default function StocksPage() {
           ))}
         </div>
         )
-      )}
-
-      {/* Holding Announcements */}
-      {viewTab === 'announcements' && (
-        <div className="card p-4">
-          <div className="mb-3 flex items-center gap-2">
-            <Newspaper className="h-4 w-4 text-primary" />
-            <h2 className="text-[14px] font-semibold">{stockT('stocksPage.messages.holdingAnnouncements')}</h2>
-            <span className="text-[11px] text-muted-foreground">
-              {stockT('stocksPage.messages.positionCount', { count: holdingAnnouncements.length })}
-            </span>
-            <Button
-              variant="ghost" size="sm" className="ml-auto h-7 text-[12px]"
-              onClick={() => void loadHoldingAnnouncements()}
-              disabled={announcementsLoading}
-            >
-              {announcementsLoading ? (
-                <span className="h-3 w-3 animate-spin rounded-full border-2 border-current/30 border-t-current" />
-              ) : (
-                <RefreshCw className="h-3.5 w-3.5" />
-              )}
-            </Button>
-          </div>
-
-          {announcementsLoading && holdingAnnouncements.length === 0 ? (
-            <div className="py-8 text-center text-[12px] text-muted-foreground">{stockT('stocksPage.messages.loading')}</div>
-          ) : announcementGroups.length === 0 ? (
-            <div className="py-8 text-center text-[12px] text-muted-foreground">{stockT('stocksPage.messages.noHoldingAnnouncements')}</div>
-          ) : (
-            <>
-              <div className="space-y-4">
-                {pagedAnnouncementGroups[announcementsPage - 1]?.map(g => (
-                  <div key={`${g.date}__${g.stock}`}>
-                    <div className="mb-1 flex items-center gap-2 text-[11px] text-muted-foreground">
-                      <span className="font-mono">{g.date}</span>
-                      <span className="rounded bg-accent/60 px-1.5 py-0.5 text-[11px] text-foreground">{g.stock}</span>
-                      <span className="text-[10px] opacity-70">{g.items.length}</span>
-                    </div>
-                    <div className="space-y-1.5 pl-1">
-                      {g.items.map(it => {
-                        const d = new Date(it.publish_time)
-                        const hm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
-                        const title = it.title.replace(/^[^:：]+[:：]/, '')
-                        return (
-                          <a
-                            key={it.external_id}
-                            href={it.url || '#'}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="group flex items-start gap-2 text-[12px]"
-                          >
-                            <span className="shrink-0 font-mono text-[11px] text-muted-foreground">{hm === '00:00' ? '' : hm}</span>
-                            <span className="text-foreground group-hover:text-primary group-hover:underline">{title}</span>
-                          </a>
-                        )
-                      })}
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <div className="mt-4 flex items-center justify-center gap-3 text-[12px]">
-                <Button
-                  variant="outline" size="sm" className="h-7"
-                  onClick={() => setAnnouncementsPage(p => Math.max(1, p - 1))}
-                  disabled={announcementsPage <= 1}
-                >
-                  {stockT('stocksPage.messages.prevPage')}
-                </Button>
-                <span className="font-mono text-muted-foreground">
-                  {announcementsPage} / {pagedAnnouncementGroups.length}
-                </span>
-                <Button
-                  variant="outline" size="sm" className="h-7"
-                  onClick={() => setAnnouncementsPage(p => Math.min(pagedAnnouncementGroups.length, p + 1))}
-                  disabled={announcementsPage >= pagedAnnouncementGroups.length}
-                >
-                  {stockT('stocksPage.messages.nextPage')}
-                </Button>
-              </div>
-            </>
-          )}
-        </div>
-      )}
-
-      {/* 持仓事件日历 */}
-      {viewTab === 'calendar' && (
-        <div className="card p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <h2 className="text-[14px] font-semibold">{stockT('stocksPage.messages.eventCalendar')}</h2>
-            <span className="text-[11px] text-muted-foreground">
-              {stockT('stocksPage.messages.positionCount', { count: calendarEvents.length })}
-            </span>
-            <Button
-              variant="ghost" size="sm" className="ml-auto h-7 text-[12px]"
-              onClick={() => void loadCalendar()}
-              disabled={calendarLoading}
-            >
-              {calendarLoading ? (
-                <span className="h-3 w-3 animate-spin rounded-full border-2 border-current/30 border-t-current" />
-              ) : (
-                <RefreshCw className="h-3.5 w-3.5" />
-              )}
-            </Button>
-          </div>
-
-          <div className="mb-3 flex items-center gap-1">
-            {[
-              { value: 'all', label: stockT('stocksPage.messages.calendarFilterAll') },
-              { value: 'dividend', label: stockT('stocksPage.messages.calendarFilterDividend') },
-              { value: 'lift', label: stockT('stocksPage.messages.calendarFilterLift') },
-              { value: 'deadline', label: stockT('stocksPage.messages.calendarFilterDeadline') },
-            ].map(opt => (
-              <button
-                key={opt.value}
-                onClick={() => setCalendarFilter(opt.value as typeof calendarFilter)}
-                className={`text-[11px] px-2 py-0.5 rounded transition-colors ${
-                  calendarFilter === opt.value
-                    ? 'bg-primary text-primary-foreground'
-                    : 'bg-accent/50 text-muted-foreground hover:bg-accent'
-                }`}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
-
-          {calendarLoading && calendarEvents.length === 0 ? (
-            <div className="py-8 text-center text-[12px] text-muted-foreground">{stockT('stocksPage.messages.loading')}</div>
-          ) : (() => {
-            const filtered = calendarEvents.filter(e => {
-              if (calendarFilter === 'all') return true
-              if (calendarFilter === 'dividend') return e.type === 'dividend_record' || e.type === 'dividend_ex'
-              if (calendarFilter === 'deadline') return e.type === 'deadline' || e.type === 'disclosure'
-              return e.type === calendarFilter
-            })
-            if (filtered.length === 0) {
-              return <div className="py-8 text-center text-[12px] text-muted-foreground">{stockT('stocksPage.messages.noCalendarEvents')}</div>
-            }
-            const groups: { date: string; items: CalendarEvent[] }[] = []
-            for (const e of filtered) {
-              const g = groups.find(x => x.date === e.date)
-              if (g) g.items.push(e)
-              else groups.push({ date: e.date, items: [e] })
-            }
-            return (
-              <div className="space-y-4">
-                {groups.map(g => {
-                  const d = new Date(`${g.date}T00:00:00`)
-                  const weekday = stockT(`stocksPage.messages.weekday${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()]}`)
-                  return (
-                    <div key={g.date}>
-                      <div className="mb-1 flex items-center gap-2 text-[11px] text-muted-foreground">
-                        <span className="font-mono">{g.date}</span>
-                        <span>{weekday}</span>
-                      </div>
-                      <div className="space-y-1.5 pl-1">
-                        {g.items.map((e, i) => {
-                          const tagClass = e.type === 'lift'
-                            ? 'bg-amber-500/10 text-amber-600'
-                            : e.type === 'disclosure'
-                            ? 'bg-indigo-500/10 text-indigo-600'
-                            : e.type === 'deadline'
-                            ? 'bg-blue-500/10 text-blue-600'
-                            : e.type === 'dividend_record'
-                            ? 'bg-emerald-500/10 text-emerald-600'
-                            : 'bg-teal-500/10 text-teal-600'
-                          return (
-                            <div key={`${e.type}_${e.symbol}_${i}`} className="flex items-start gap-2 text-[12px]">
-                              <span className={`shrink-0 rounded px-1.5 py-0.5 text-[11px] ${tagClass}`}>{e.title}</span>
-                              {e.symbol && <span className="shrink-0 text-foreground">{e.name}</span>}
-                              {e.detail && <span className="text-muted-foreground">{e.detail}</span>}
-                            </div>
-                          )
-                        })}
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            )
-          })()}
-        </div>
       )}
 
       {/* Watchlist */}
