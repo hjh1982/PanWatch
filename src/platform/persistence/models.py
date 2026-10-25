@@ -1550,6 +1550,24 @@ class CoalPricePoint(Base):
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
 
+class CoalMonthlyPoint(Base):
+    """国家统计局月度原煤产量，以及煤炭、电力行业累计利润。"""
+
+    __tablename__ = "coal_monthly_points"
+    __table_args__ = (
+        UniqueConstraint("month", name="uq_coal_monthly_points_month"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    month = Column(String(7), nullable=False)
+    output_10k_t = Column(Float, nullable=False)
+    output_cum_10k_t = Column(Float)
+    profit_cum_yi = Column(Float)
+    power_profit_cum_yi = Column(Float)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
 class AluminumPricePoint(Base):
     """A00 铝与山西氧化铝日度现货报价（元/吨）。"""
 

@@ -93,6 +93,18 @@ GROUPS: tuple[GroupDef, ...] = (
         accent="#f97316",
     ),
     GroupDef(
+        id="coalMonthly",
+        label="煤炭产量·吨煤利润",
+        category="commodity",
+        accent="#c2410c",
+    ),
+    GroupDef(
+        id="coalPowerProfit",
+        label="煤炭·电力利润",
+        category="commodity",
+        accent="#7c3aed",
+    ),
+    GroupDef(
         id="aluminum",
         label="电解铝·氧化铝",
         category="commodity",

@@ -104,6 +104,11 @@ interface MetricsPayload {
   }
   coverage: Coverage
   storage?: CoalStorage
+  source?: {
+    name: string
+    url: string
+    cadence: string
+  }
 }
 
 type CurveResponse = ShareCurvePayload | MetricsPayload
@@ -173,6 +178,26 @@ const COAL_METRIC_COLORS: Record<string, string> = {
 const COAL_METRIC_KEYS = {
   cci_5500: 'etfShares.coal.metrics.cci_5500',
 } as const
+const COAL_MONTHLY_METRIC_COLORS: Record<string, string> = {
+  coal_output: '#c2410c',
+  coal_profit_per_ton: '#0ea5e9',
+  coal_profit: '#f59e0b',
+}
+const COAL_MONTHLY_METRIC_KEYS = {
+  coal_output: 'etfShares.coalMonthly.metrics.coal_output',
+  coal_profit_per_ton: 'etfShares.coalMonthly.metrics.coal_profit_per_ton',
+  coal_profit: 'etfShares.coalMonthly.metrics.coal_profit',
+} as const
+const COAL_POWER_METRIC_COLORS: Record<string, string> = {
+  coal_profit: '#c2410c',
+  power_profit: '#0ea5e9',
+  industry_profit_total: '#7c3aed',
+}
+const COAL_POWER_METRIC_KEYS = {
+  coal_profit: 'etfShares.coalPowerProfit.metrics.coal_profit',
+  power_profit: 'etfShares.coalPowerProfit.metrics.power_profit',
+  industry_profit_total: 'etfShares.coalPowerProfit.metrics.industry_profit_total',
+} as const
 const ALUMINUM_METRIC_COLORS: Record<string, string> = {
   a00_avg: '#e5484d',
   alumina_avg: '#0ea5e9',
@@ -217,6 +242,8 @@ const GROUP_LABEL_KEYS = {
   zz500: 'etfShares.groups.zz500',
   margin: 'etfShares.groups.margin',
   coalPrice: 'etfShares.groups.coalPrice',
+  coalMonthly: 'etfShares.groups.coalMonthly',
+  coalPowerProfit: 'etfShares.groups.coalPowerProfit',
   aluminum: 'etfShares.groups.aluminum',
   aluminumInventory: 'etfShares.groups.aluminumInventory',
   goldReserves: 'etfShares.groups.goldReserves',
@@ -365,6 +392,7 @@ function ShareChart({
   valueUnit = '',
   valueDigits = 2,
   sortTooltip = true,
+  zeroBased = false,
 }: {
   dates: string[]
   series: ChartSeries[]
@@ -375,13 +403,15 @@ function ShareChart({
   valueUnit?: string
   valueDigits?: number
   sortTooltip?: boolean
+  zeroBased?: boolean
 }) {
   const gradientId = useId()
   const [hoverIndex, setHoverIndex] = useState<number | null>(null)
 
   const model = useMemo(() => {
     if (dates.length === 0 || series.length === 0) return null
-    const scale = buildScale(series.flatMap((item) => item.values), 5)
+    const values = series.flatMap((item) => item.values)
+    const scale = zeroBased ? buildZeroScale(values, 5) : buildScale(values, 5)
     if (!scale) return null
     const innerWidth = CHART_WIDTH - CHART_PADDING.left - CHART_PADDING.right
     const innerHeight = CHART_HEIGHT - CHART_PADDING.top - CHART_PADDING.bottom
@@ -429,7 +459,7 @@ function ShareChart({
       return { x: xOf(index), label: dates[index], anchor }
     })
     return { scale, innerHeight, xOf, yOf, lines, xTicks }
-  }, [dates, series])
+  }, [dates, series, zeroBased])
 
   if (!model) {
     return (
@@ -1618,6 +1648,10 @@ function DualAxisChart({
   rightColor,
   emptyText,
   valueUnit,
+  leftUnit,
+  rightUnit,
+  leftDigits = 0,
+  rightDigits = 0,
   ariaLabel,
 }: {
   dates: string[]
@@ -1629,6 +1663,10 @@ function DualAxisChart({
   rightColor: string
   emptyText: string
   valueUnit: string
+  leftUnit?: string
+  rightUnit?: string
+  leftDigits?: number
+  rightDigits?: number
   ariaLabel: string
 }) {
   const [hoverIndex, setHoverIndex] = useState<number | null>(null)
@@ -1835,8 +1873,8 @@ function DualAxisChart({
               />
               <span className="text-muted-foreground">{leftLabel}</span>
               <span className="ml-auto whitespace-nowrap font-mono font-medium text-foreground">
-                {formatValue(leftHover, 0)}
-                {valueUnit ? ` ${valueUnit}` : ''}
+                {formatValue(leftHover, leftDigits)}
+                {(leftUnit ?? valueUnit) ? ` ${leftUnit ?? valueUnit}` : ''}
               </span>
             </div>
             <div className="flex items-center gap-1.5 text-[11px]">
@@ -1846,8 +1884,8 @@ function DualAxisChart({
               />
               <span className="text-muted-foreground">{rightLabel}</span>
               <span className="ml-auto whitespace-nowrap font-mono font-medium text-foreground">
-                {formatValue(rightHover, 0)}
-                {valueUnit ? ` ${valueUnit}` : ''}
+                {formatValue(rightHover, rightDigits)}
+                {(rightUnit ?? valueUnit) ? ` ${rightUnit ?? valueUnit}` : ''}
               </span>
             </div>
           </div>
@@ -2998,6 +3036,484 @@ function CoalDashboard({
   )
 }
 
+function CoalMonthlyDashboard({ data }: { data: MetricsPayload }) {
+  const { t } = useTranslation('configuration')
+  const output = data.series.coal_output ?? []
+  const profit = data.series.coal_profit ?? []
+  const perTon = data.series.coal_profit_per_ton ?? []
+  const perTonCum = data.series.coal_profit_per_ton_cum ?? []
+  const outputUnit = t('etfShares.coalMonthly.units.output')
+  const perTonUnit = t('etfShares.coalMonthly.units.perTon')
+  const profitUnit = t('etfShares.coalMonthly.units.profit')
+  const monthLabel = (month: string) =>
+    month.endsWith('-02')
+      ? t('etfShares.coalMonthly.combined', { month })
+      : month
+  const rows = data.dates
+    .map((month, index) => ({
+      month,
+      output: output[index] ?? null,
+      profit: profit[index] ?? null,
+      perTon: perTon[index] ?? null,
+      perTonCum: perTonCum[index] ?? null,
+    }))
+    .reverse()
+  const unitByMetric: Record<string, string> = {
+    coal_output: outputUnit,
+    coal_profit_per_ton: perTonUnit,
+    coal_profit: profitUnit,
+  }
+  const digitsByMetric: Record<string, number> = {
+    coal_output: 0,
+    coal_profit_per_ton: 1,
+    coal_profit: 1,
+  }
+  const cumSeries: ChartSeries[] = [
+    {
+      code: 'coal_profit_per_ton_cum',
+      name: t('etfShares.coalMonthly.legend.perTonCum'),
+      color: COAL_MONTHLY_METRIC_COLORS.coal_profit_per_ton,
+      values: perTonCum,
+      filled: true,
+    },
+  ]
+
+  return (
+    <div className="space-y-4">
+      <section className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+        {data.metrics.map((metric) => {
+          const key =
+            COAL_MONTHLY_METRIC_KEYS[
+              metric.id as keyof typeof COAL_MONTHLY_METRIC_KEYS
+            ]
+          return (
+            <MetricCard
+              key={metric.id}
+              metric={metric}
+              label={key ? t(key) : metric.id}
+              unit={unitByMetric[metric.id] ?? ''}
+              color={COAL_MONTHLY_METRIC_COLORS[metric.id] ?? '#64748b'}
+              digits={digitsByMetric[metric.id] ?? 0}
+            />
+          )
+        })}
+      </section>
+
+      <section className="card overflow-hidden">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border/60 px-4 py-2.5">
+          <span
+            className="h-4 w-1 rounded"
+            style={{ backgroundColor: COAL_MONTHLY_METRIC_COLORS.coal_output }}
+          />
+          <h2 className="text-[13px] font-semibold">
+            {t('etfShares.coalMonthly.charts.title')}
+          </h2>
+          <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+            {t('etfShares.coalMonthly.charts.monthly')}
+          </span>
+          <div className="ml-auto flex items-center gap-3 text-[11px] text-muted-foreground">
+            <span className="flex items-center gap-1.5">
+              <span
+                className="inline-block h-1.5 w-1.5 rounded-full"
+                style={{ backgroundColor: COAL_MONTHLY_METRIC_COLORS.coal_output }}
+              />
+              {t('etfShares.coalMonthly.legend.output')}
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span
+                className="inline-block h-1.5 w-1.5 rounded-full"
+                style={{
+                  backgroundColor: COAL_MONTHLY_METRIC_COLORS.coal_profit_per_ton,
+                }}
+              />
+              {t('etfShares.coalMonthly.legend.perTon')}
+            </span>
+          </div>
+        </div>
+        <div className="px-2 pb-2 pt-3 md:px-4">
+          <p className="mb-2 px-1 text-[11px] text-muted-foreground/80">
+            {t('etfShares.coalMonthly.charts.hint')}
+          </p>
+          <DualAxisChart
+            dates={data.dates}
+            leftValues={output}
+            rightValues={perTon}
+            leftLabel={t('etfShares.coalMonthly.legend.output')}
+            rightLabel={t('etfShares.coalMonthly.legend.perTon')}
+            leftColor={COAL_MONTHLY_METRIC_COLORS.coal_output}
+            rightColor={COAL_MONTHLY_METRIC_COLORS.coal_profit_per_ton}
+            emptyText={t('etfShares.coalMonthly.charts.empty')}
+            valueUnit=""
+            leftUnit={outputUnit}
+            rightUnit={perTonUnit}
+            leftDigits={0}
+            rightDigits={1}
+            ariaLabel={t('etfShares.coalMonthly.charts.title')}
+          />
+        </div>
+      </section>
+
+      <section className="card overflow-hidden">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border/60 px-4 py-2.5">
+          <span
+            className="h-4 w-1 rounded"
+            style={{ backgroundColor: COAL_MONTHLY_METRIC_COLORS.coal_profit_per_ton }}
+          />
+          <h2 className="text-[13px] font-semibold">
+            {t('etfShares.coalMonthly.charts.cumTitle')}
+          </h2>
+          <span className="ml-auto text-[11px] text-muted-foreground">
+            {t('etfShares.coalMonthly.charts.cumHint')}
+          </span>
+        </div>
+        <div className="px-2 pb-2 pt-3 md:px-4">
+          <ShareChart
+            dates={data.dates}
+            series={cumSeries}
+            emptyText={t('etfShares.coalMonthly.charts.empty')}
+            unitLabel={t('etfShares.coalMonthly.charts.cumYUnit')}
+            valueUnit={perTonUnit}
+            valueDigits={1}
+            ariaLabel={t('etfShares.coalMonthly.charts.cumTitle')}
+            labelByName
+          />
+        </div>
+      </section>
+
+      <section className="card overflow-hidden">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border/60 px-4 py-2.5">
+          <h2 className="text-[13px] font-semibold">
+            {t('etfShares.coalMonthly.data.title')}
+          </h2>
+          <Badge variant="secondary" className="text-[10px]">
+            {t('etfShares.coalMonthly.data.count', { count: rows.length })}
+          </Badge>
+          {data.as_of && (
+            <span className="ml-auto font-mono text-[11px] text-muted-foreground">
+              {data.as_of}
+            </span>
+          )}
+        </div>
+        {rows.length === 0 ? (
+          <p className="px-4 py-6 text-center text-[12px] text-muted-foreground">
+            {t('etfShares.coalMonthly.data.empty')}
+          </p>
+        ) : (
+          <div className="max-h-[360px] overflow-auto scrollbar">
+            <table className="w-full min-w-[560px] text-[12px]">
+              <thead className="sticky top-0 z-10 bg-card text-left text-[11px] text-muted-foreground">
+                <tr className="border-b border-border/60">
+                  <th className="px-4 py-2 font-medium">
+                    {t('etfShares.coalMonthly.data.month')}
+                  </th>
+                  <th className="px-3 py-2 text-right font-medium">
+                    {t('etfShares.coalMonthly.data.output')}
+                  </th>
+                  <th className="px-3 py-2 text-right font-medium">
+                    {t('etfShares.coalMonthly.data.profit')}
+                  </th>
+                  <th className="px-3 py-2 text-right font-medium">
+                    {t('etfShares.coalMonthly.data.perTon')}
+                  </th>
+                  <th className="px-4 py-2 text-right font-medium">
+                    {t('etfShares.coalMonthly.data.perTonCum')}
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row) => (
+                  <tr
+                    key={row.month}
+                    className="border-b border-border/40 last:border-0 hover:bg-accent/20"
+                  >
+                    <td className="whitespace-nowrap px-4 py-1.5 font-mono">
+                      {monthLabel(row.month)}
+                    </td>
+                    <td className="px-3 py-1.5 text-right font-mono">
+                      {formatValue(row.output, 0)}
+                    </td>
+                    <td className="px-3 py-1.5 text-right font-mono">
+                      {formatValue(row.profit, 1)}
+                    </td>
+                    <td className="px-3 py-1.5 text-right font-mono">
+                      {formatValue(row.perTon, 1)}
+                    </td>
+                    <td className="px-4 py-1.5 text-right font-mono">
+                      {formatValue(row.perTonCum, 1)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {data.storage && (
+          <div className="space-y-1 border-t border-border/60 bg-muted/30 px-4 py-2.5 text-[11px] text-muted-foreground/80">
+            <p className="flex items-start gap-1.5">
+              <Database className="mt-0.5 h-3 w-3 shrink-0" />
+              <span className="break-all">
+                {t('etfShares.coalMonthly.data.storage', {
+                  database: data.storage.database,
+                  table: data.storage.table,
+                })}
+              </span>
+            </p>
+            <p className="break-all pl-[18px] text-muted-foreground/70">
+              {t('etfShares.coalMonthly.data.seedFile', {
+                path: data.storage.seed,
+              })}
+            </p>
+          </div>
+        )}
+      </section>
+
+      <p className="px-1 text-[11px] text-muted-foreground/80">
+        {t('etfShares.coalMonthly.caveat')}
+      </p>
+    </div>
+  )
+}
+
+function CoalPowerProfitDashboard({ data }: { data: MetricsPayload }) {
+  const { t } = useTranslation('configuration')
+  const coal = data.series.coal_profit ?? []
+  const power = data.series.power_profit ?? []
+  const coalCum = data.series.coal_profit_cum ?? []
+  const powerCum = data.series.power_profit_cum ?? []
+  const profitUnit = t('etfShares.coalPowerProfit.units.profit')
+  const monthLabel = (month: string) =>
+    month.endsWith('-02')
+      ? t('etfShares.coalPowerProfit.combined', { month })
+      : month
+  const rows = data.dates
+    .map((month, index) => ({
+      month,
+      coal: coal[index] ?? null,
+      power: power[index] ?? null,
+      coalCum: coalCum[index] ?? null,
+      powerCum: powerCum[index] ?? null,
+    }))
+    .reverse()
+  const unitByMetric: Record<string, string> = {
+    coal_profit: profitUnit,
+    power_profit: profitUnit,
+    industry_profit_total: profitUnit,
+  }
+  const latestYear = data.dates.length
+    ? data.dates[data.dates.length - 1].slice(0, 4)
+    : ''
+  const priorYear = latestYear ? String(Number(latestYear) - 1) : ''
+  const monthAxis = Array.from({ length: 12 }, (_, index) =>
+    String(index + 1).padStart(2, '0'),
+  )
+  const byMonth = (values: Array<number | null>, year: string) => {
+    const map = new Map<number, number>()
+    data.dates.forEach((date, index) => {
+      if (!date.startsWith(`${year}-`)) return
+      const value = values[index]
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        map.set(Number(date.slice(5, 7)), value)
+      }
+    })
+    return monthAxis.map((month) => map.get(Number(month)) ?? null)
+  }
+  const monthlySeries: ChartSeries[] = [
+    {
+      code: `coal_${priorYear}`,
+      name: `${t('etfShares.coalPowerProfit.legend.coalShort')} ${priorYear}`,
+      color: COAL_POWER_METRIC_COLORS.coal_profit,
+      dashed: true,
+      values: byMonth(coal, priorYear),
+    },
+    {
+      code: `coal_${latestYear}`,
+      name: `${t('etfShares.coalPowerProfit.legend.coalShort')} ${latestYear}`,
+      color: COAL_POWER_METRIC_COLORS.coal_profit,
+      values: byMonth(coal, latestYear),
+    },
+    {
+      code: `power_${priorYear}`,
+      name: `${t('etfShares.coalPowerProfit.legend.powerShort')} ${priorYear}`,
+      color: COAL_POWER_METRIC_COLORS.power_profit,
+      dashed: true,
+      values: byMonth(power, priorYear),
+    },
+    {
+      code: `power_${latestYear}`,
+      name: `${t('etfShares.coalPowerProfit.legend.powerShort')} ${latestYear}`,
+      color: COAL_POWER_METRIC_COLORS.power_profit,
+      values: byMonth(power, latestYear),
+    },
+  ]
+  const chartHeader = (
+    title: string,
+    hint: string,
+    accent: string,
+    series: ChartSeries[],
+  ) => (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border/60 px-4 py-2.5">
+      <span className="h-4 w-1 rounded" style={{ backgroundColor: accent }} />
+      <h2 className="text-[13px] font-semibold">{title}</h2>
+      <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+        {t('etfShares.coalPowerProfit.charts.monthly')}
+      </span>
+      <div className="ml-auto flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+        {series.map((item) => (
+          <span key={item.code} className="flex items-center gap-1.5">
+            <span
+              className="inline-block w-4 shrink-0"
+              style={{
+                borderTop: `2px ${item.dashed ? 'dashed' : 'solid'} ${item.color}`,
+              }}
+            />
+            {item.name}
+          </span>
+        ))}
+      </div>
+      <p className="w-full text-[11px] text-muted-foreground/80">{hint}</p>
+    </div>
+  )
+
+  return (
+    <div className="space-y-4">
+      <section className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+        {data.metrics.map((metric) => {
+          const key =
+            COAL_POWER_METRIC_KEYS[
+              metric.id as keyof typeof COAL_POWER_METRIC_KEYS
+            ]
+          return (
+            <MetricCard
+              key={metric.id}
+              metric={metric}
+              label={key ? t(key) : metric.id}
+              unit={unitByMetric[metric.id] ?? ''}
+              color={COAL_POWER_METRIC_COLORS[metric.id] ?? '#64748b'}
+              digits={1}
+            />
+          )
+        })}
+      </section>
+
+      <section className="card overflow-hidden">
+        {chartHeader(
+          t('etfShares.coalPowerProfit.charts.title'),
+          t('etfShares.coalPowerProfit.charts.hint', {
+            prior: priorYear,
+            latest: latestYear,
+          }),
+          COAL_POWER_METRIC_COLORS.coal_profit,
+          monthlySeries,
+        )}
+        <div className="px-2 pb-2 pt-3 md:px-4">
+          <ShareChart
+            dates={monthAxis}
+            series={monthlySeries}
+            emptyText={t('etfShares.coalPowerProfit.charts.empty')}
+            unitLabel={t('etfShares.coalPowerProfit.charts.monthlyYUnit')}
+            valueUnit={profitUnit}
+            valueDigits={1}
+            ariaLabel={t('etfShares.coalPowerProfit.charts.title')}
+            labelByName
+            zeroBased
+          />
+        </div>
+      </section>
+
+      <section className="card overflow-hidden">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border/60 px-4 py-2.5">
+          <h2 className="text-[13px] font-semibold">
+            {t('etfShares.coalPowerProfit.data.title')}
+          </h2>
+          <Badge variant="secondary" className="text-[10px]">
+            {t('etfShares.coalPowerProfit.data.count', { count: rows.length })}
+          </Badge>
+          {data.as_of && (
+            <span className="ml-auto font-mono text-[11px] text-muted-foreground">
+              {data.as_of}
+            </span>
+          )}
+        </div>
+        {rows.length === 0 ? (
+          <p className="px-4 py-6 text-center text-[12px] text-muted-foreground">
+            {t('etfShares.coalPowerProfit.data.empty')}
+          </p>
+        ) : (
+          <div className="max-h-[360px] overflow-auto scrollbar">
+            <table className="w-full min-w-[640px] text-[12px]">
+              <thead className="sticky top-0 z-10 bg-card text-left text-[11px] text-muted-foreground">
+                <tr className="border-b border-border/60">
+                  <th className="px-4 py-2 font-medium">
+                    {t('etfShares.coalPowerProfit.data.month')}
+                  </th>
+                  <th className="px-3 py-2 text-right font-medium">
+                    {t('etfShares.coalPowerProfit.data.coal')}
+                  </th>
+                  <th className="px-3 py-2 text-right font-medium">
+                    {t('etfShares.coalPowerProfit.data.power')}
+                  </th>
+                  <th className="px-3 py-2 text-right font-medium">
+                    {t('etfShares.coalPowerProfit.data.coalCum')}
+                  </th>
+                  <th className="px-4 py-2 text-right font-medium">
+                    {t('etfShares.coalPowerProfit.data.powerCum')}
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row) => (
+                  <tr
+                    key={row.month}
+                    className="border-b border-border/40 last:border-0 hover:bg-accent/20"
+                  >
+                    <td className="whitespace-nowrap px-4 py-1.5 font-mono">
+                      {monthLabel(row.month)}
+                    </td>
+                    <td className="px-3 py-1.5 text-right font-mono">
+                      {formatValue(row.coal, 1)}
+                    </td>
+                    <td className="px-3 py-1.5 text-right font-mono">
+                      {formatValue(row.power, 1)}
+                    </td>
+                    <td className="px-3 py-1.5 text-right font-mono">
+                      {formatValue(row.coalCum, 1)}
+                    </td>
+                    <td className="px-4 py-1.5 text-right font-mono">
+                      {formatValue(row.powerCum, 1)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {data.storage && (
+          <div className="space-y-1 border-t border-border/60 bg-muted/30 px-4 py-2.5 text-[11px] text-muted-foreground/80">
+            <p className="flex items-start gap-1.5">
+              <Database className="mt-0.5 h-3 w-3 shrink-0" />
+              <span className="break-all">
+                {t('etfShares.coalPowerProfit.data.storage', {
+                  database: data.storage.database,
+                  table: data.storage.table,
+                })}
+              </span>
+            </p>
+            <p className="break-all pl-[18px] text-muted-foreground/70">
+              {t('etfShares.coalPowerProfit.data.seedFile', {
+                path: data.storage.seed,
+              })}
+            </p>
+          </div>
+        )}
+      </section>
+
+      <p className="px-1 text-[11px] text-muted-foreground/80">
+        {t('etfShares.coalPowerProfit.caveat')}
+      </p>
+    </div>
+  )
+}
+
 function FundCard({
   fund,
   color,
@@ -3183,7 +3699,11 @@ function EtfSharesPage() {
     setCurve(null)
 
     const run = async (action: 'curve' | 'refresh') => {
-      const full = groupId === 'coalPrice' || groupId === 'aluminumInventory'
+      const full =
+        groupId === 'coalPrice' ||
+        groupId === 'coalMonthly' ||
+        groupId === 'coalPowerProfit' ||
+        groupId === 'aluminumInventory'
       try {
         const data =
           action === 'refresh'
@@ -3227,68 +3747,90 @@ function EtfSharesPage() {
   const activeGroup = groups.find((group) => group.id === groupId) ?? null
   const isMarginGroup = activeGroup?.id === 'margin'
   const isCoalGroup = activeGroup?.id === 'coalPrice'
+  const isCoalMonthlyGroup = activeGroup?.id === 'coalMonthly'
+  const isCoalPowerProfitGroup = activeGroup?.id === 'coalPowerProfit'
   const isAluminumGroup = activeGroup?.id === 'aluminum'
   const isInventoryGroup = activeGroup?.id === 'aluminumInventory'
   const isThreeGorgesGroup = activeGroup?.id === 'threeGorges'
   const pageTitle = isCoalGroup
     ? t('etfShares.coal.title')
-    : isInventoryGroup
-      ? t('etfShares.aluminumInventory.title')
-      : isAluminumGroup
-        ? t('etfShares.aluminum.title')
-        : isThreeGorgesGroup
-          ? t('etfShares.threeGorges.title')
-          : isMarginGroup
-            ? t('etfShares.margin.title')
-            : t('etfShares.title')
+    : isCoalMonthlyGroup
+      ? t('etfShares.coalMonthly.title')
+      : isCoalPowerProfitGroup
+        ? t('etfShares.coalPowerProfit.title')
+        : isInventoryGroup
+          ? t('etfShares.aluminumInventory.title')
+          : isAluminumGroup
+            ? t('etfShares.aluminum.title')
+            : isThreeGorgesGroup
+              ? t('etfShares.threeGorges.title')
+              : isMarginGroup
+                ? t('etfShares.margin.title')
+                : t('etfShares.title')
   const pageBadge = isCoalGroup
     ? t('etfShares.coal.badge')
-    : isInventoryGroup
-      ? t('etfShares.aluminumInventory.badge')
-      : isAluminumGroup
-        ? t('etfShares.aluminum.badge')
-        : isThreeGorgesGroup
-          ? t('etfShares.threeGorges.badge')
-          : isMarginGroup
-            ? t('etfShares.margin.badge')
-            : t('etfShares.badge')
+    : isCoalMonthlyGroup
+      ? t('etfShares.coalMonthly.badge')
+      : isCoalPowerProfitGroup
+        ? t('etfShares.coalPowerProfit.badge')
+        : isInventoryGroup
+          ? t('etfShares.aluminumInventory.badge')
+          : isAluminumGroup
+            ? t('etfShares.aluminum.badge')
+            : isThreeGorgesGroup
+              ? t('etfShares.threeGorges.badge')
+              : isMarginGroup
+                ? t('etfShares.margin.badge')
+                : t('etfShares.badge')
   const pageSubtitle = isCoalGroup
     ? t('etfShares.coal.subtitle')
-    : isInventoryGroup
-      ? t('etfShares.aluminumInventory.subtitle')
-      : isAluminumGroup
-        ? t('etfShares.aluminum.subtitle')
-        : isThreeGorgesGroup
-          ? t('etfShares.threeGorges.subtitle')
-          : isMarginGroup
-            ? t('etfShares.margin.subtitle')
-            : t('etfShares.subtitle')
+    : isCoalMonthlyGroup
+      ? t('etfShares.coalMonthly.subtitle')
+      : isCoalPowerProfitGroup
+        ? t('etfShares.coalPowerProfit.subtitle')
+        : isInventoryGroup
+          ? t('etfShares.aluminumInventory.subtitle')
+          : isAluminumGroup
+            ? t('etfShares.aluminum.subtitle')
+            : isThreeGorgesGroup
+              ? t('etfShares.threeGorges.subtitle')
+              : isMarginGroup
+                ? t('etfShares.margin.subtitle')
+                : t('etfShares.subtitle')
   const cardUnit = t('etfShares.unit')
   const chartTitle = t('etfShares.chart.title')
   const chartEmpty = t('etfShares.chart.empty')
   const chartYUnit = t('etfShares.chart.yUnit')
   const loadingText = isCoalGroup
     ? t('etfShares.coal.loading')
-    : isInventoryGroup
-      ? t('etfShares.aluminumInventory.loading')
-      : isAluminumGroup
-        ? t('etfShares.aluminum.loading')
-        : isThreeGorgesGroup
-          ? t('etfShares.threeGorges.loading')
-          : isMarginGroup
-            ? t('etfShares.margin.loading')
-            : t('etfShares.loading')
+    : isCoalMonthlyGroup
+      ? t('etfShares.coalMonthly.loading')
+      : isCoalPowerProfitGroup
+        ? t('etfShares.coalPowerProfit.loading')
+        : isInventoryGroup
+          ? t('etfShares.aluminumInventory.loading')
+          : isAluminumGroup
+            ? t('etfShares.aluminum.loading')
+            : isThreeGorgesGroup
+              ? t('etfShares.threeGorges.loading')
+              : isMarginGroup
+                ? t('etfShares.margin.loading')
+                : t('etfShares.loading')
   const noDataText = isCoalGroup
     ? t('etfShares.coal.noData')
-    : isInventoryGroup
-      ? t('etfShares.aluminumInventory.noData')
-      : isAluminumGroup
-        ? t('etfShares.aluminum.noData')
-        : isThreeGorgesGroup
-          ? t('etfShares.threeGorges.noData')
-          : isMarginGroup
-            ? t('etfShares.margin.noData')
-            : t('etfShares.errors.noData')
+    : isCoalMonthlyGroup
+      ? t('etfShares.coalMonthly.noData')
+      : isCoalPowerProfitGroup
+        ? t('etfShares.coalPowerProfit.noData')
+        : isInventoryGroup
+          ? t('etfShares.aluminumInventory.noData')
+          : isAluminumGroup
+            ? t('etfShares.aluminum.noData')
+            : isThreeGorgesGroup
+              ? t('etfShares.threeGorges.noData')
+              : isMarginGroup
+                ? t('etfShares.margin.noData')
+                : t('etfShares.errors.noData')
   const metricsCurve = isMetricsPayload(curve) ? curve : null
   const shareCurve = curve && !isMetricsPayload(curve) ? curve : null
   const hasData = metricsCurve
@@ -3377,15 +3919,23 @@ function EtfSharesPage() {
     curve && curve.dates.length > 0
       ? isCoalGroup
         ? t('etfShares.coal.updatedCount', { count: curve.coverage.trading_days })
-        : isInventoryGroup
-          ? t('etfShares.aluminumInventory.updatedCount', {
+        : isCoalMonthlyGroup
+          ? t('etfShares.coalMonthly.updatedCount', {
               count: curve.coverage.trading_days,
             })
-          : isThreeGorgesGroup
-            ? t('etfShares.threeGorges.updatedCount', {
+          : isCoalPowerProfitGroup
+            ? t('etfShares.coalPowerProfit.updatedCount', {
                 count: curve.coverage.trading_days,
               })
-          : t('etfShares.updatedCount', { count: curve.coverage.trading_days })
+            : isInventoryGroup
+              ? t('etfShares.aluminumInventory.updatedCount', {
+                  count: curve.coverage.trading_days,
+                })
+              : isThreeGorgesGroup
+                ? t('etfShares.threeGorges.updatedCount', {
+                    count: curve.coverage.trading_days,
+                  })
+                : t('etfShares.updatedCount', { count: curve.coverage.trading_days })
       : ''
 
   return (
@@ -3416,7 +3966,10 @@ function EtfSharesPage() {
           </div>
           {activeGroup?.available !== false && (
             <div className="flex items-center gap-2">
-              {!isCoalGroup && !isInventoryGroup && (
+              {!isCoalGroup &&
+                !isCoalMonthlyGroup &&
+                !isCoalPowerProfitGroup &&
+                !isInventoryGroup && (
                 <Select
                   value={String(days)}
                   onValueChange={(value) => setDays(Number(value))}
@@ -3511,6 +4064,10 @@ function EtfSharesPage() {
             </section>
           ) : isCoalGroup && metricsCurve ? (
             <CoalDashboard data={metricsCurve} onChanged={handleCoalChanged} />
+          ) : isCoalMonthlyGroup && metricsCurve ? (
+            <CoalMonthlyDashboard data={metricsCurve} />
+          ) : isCoalPowerProfitGroup && metricsCurve ? (
+            <CoalPowerProfitDashboard data={metricsCurve} />
           ) : isAluminumGroup && metricsCurve ? (
             <AluminumDashboard data={metricsCurve} />
           ) : isInventoryGroup && metricsCurve ? (

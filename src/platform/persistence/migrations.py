@@ -2177,6 +2177,21 @@ def _m137_fear_greed_points(conn: Connection) -> None:
     FearGreedPoint.__table__.create(conn, checkfirst=True)
 
 
+def _m138_coal_monthly_points(conn: Connection) -> None:
+    from src.platform.persistence.models import CoalMonthlyPoint
+
+    CoalMonthlyPoint.__table__.create(conn, checkfirst=True)
+
+
+def _m139_coal_monthly_power_profit(conn: Connection) -> None:
+    _add_column_if_missing(
+        conn,
+        "coal_monthly_points",
+        "power_profit_cum_yi",
+        "ALTER TABLE coal_monthly_points ADD COLUMN power_profit_cum_yi FLOAT",
+    )
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(101, "agent_config_kind_and_visibility", _m101_agent_config_kind),
     Migration(102, "backfill_agent_kind_data", _m102_backfill_agent_kind),
@@ -2215,6 +2230,8 @@ MIGRATIONS: tuple[Migration, ...] = (
     Migration(135, "retire_unused_agents", _m135_retire_unused_agents),
     Migration(136, "paper_trading_settlement", _m136_paper_trading_settlement),
     Migration(137, "fear_greed_points", _m137_fear_greed_points),
+    Migration(138, "coal_monthly_points", _m138_coal_monthly_points),
+    Migration(139, "coal_monthly_power_profit", _m139_coal_monthly_power_profit),
 )
 
 
