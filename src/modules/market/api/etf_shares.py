@@ -13,6 +13,7 @@ from src.modules.market import (
     coal_monthly_service,
     coal_price_service,
     etf_share_service,
+    global_coal_service,
     margin_service,
     three_gorges_service,
 )
@@ -59,6 +60,10 @@ def _load_curve(
     if group == three_gorges_service.THREE_GORGES_GROUP_ID:
         return three_gorges_service.get_curve_payload(
             db, group, days, force=force
+        )
+    if group == global_coal_service.GLOBAL_COAL_GROUP_ID:
+        return global_coal_service.get_curve_payload(
+            group, days, force=force
         )
     return etf_share_service.get_curve_payload(db, group, days, force=force)
 

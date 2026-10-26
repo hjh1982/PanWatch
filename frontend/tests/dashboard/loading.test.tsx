@@ -120,6 +120,27 @@ describe('dashboard progressive loading', () => {
     expect(await screen.findByText('恐贪指数暂不可用')).toBeTruthy()
   })
 
+  it('expands all attribution rows from the health card', async () => {
+    vi.mocked(portfolioApi.diagnostics).mockResolvedValue(diagnostics)
+    vi.mocked(portfolioApi.benchmark).mockResolvedValue(benchmark)
+    vi.mocked(dashboardApi.portfolioSummary).mockResolvedValue(summary)
+    vi.mocked(portfolioApi.attribution).mockResolvedValue({ items: [
+      { symbol: '600150', name: '中国船舶', market: 'CN', return_pct: 7.69, weight_pct: 7.7, contribution_pct: 0.59 },
+      { symbol: '000933', name: '神火股份', market: 'CN', return_pct: 1.08, weight_pct: 13.3, contribution_pct: 0.14 },
+      { symbol: '01898', name: '中煤能源', market: 'HK', return_pct: -13.73, weight_pct: 5.6, contribution_pct: -0.76 },
+    ] })
+    render(<MemoryRouter><DashboardPage /></MemoryRouter>)
+
+    const toggle = await screen.findByRole('button', { name: /查看全部贡献度/ })
+    expect(screen.queryByText('区间涨跌')).toBeNull()
+    await userEvent.click(toggle)
+    expect(screen.getByText('区间涨跌')).toBeTruthy()
+    expect(screen.getByText('神火股份')).toBeTruthy()
+    expect(screen.getByText('+0.14%')).toBeTruthy()
+    await userEvent.click(screen.getByRole('button', { name: /收起/ }))
+    expect(screen.queryByText('区间涨跌')).toBeNull()
+  })
+
   it('ignores the old benchmark response after a newer refresh finishes', async () => {
     const oldBenchmark = deferred<typeof benchmark>()
     vi.mocked(portfolioApi.benchmark).mockReturnValueOnce(oldBenchmark.promise)

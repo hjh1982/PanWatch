@@ -78,6 +78,9 @@ interface ShareCurvePayload {
 
 interface MarginMetric {
   id: string
+  label?: string
+  unit?: string
+  axis?: 'left' | 'right'
   latest: number | null
   latest_date: string | null
   delta: number | null
@@ -88,6 +91,15 @@ interface CoalStorage {
   database: string
   table: string
   seed: string
+}
+
+interface MetricSource {
+  id: string
+  name: string
+  url: string
+  cadence: string
+  start: string | null
+  latest: string | null
 }
 
 interface MetricsPayload {
@@ -109,6 +121,7 @@ interface MetricsPayload {
     url: string
     cadence: string
   }
+  sources?: MetricSource[]
 }
 
 type CurveResponse = ShareCurvePayload | MetricsPayload
@@ -236,6 +249,16 @@ const THREE_GORGES_METRIC_UNITS = {
   inflow: 'etfShares.threeGorges.units.flow',
   outflow: 'etfShares.threeGorges.units.flow',
 } as const
+const GLOBAL_COAL_METRIC_COLORS: Record<string, string> = {
+  newcastle: '#1d4ed8',
+  rotterdam: '#0ea5e9',
+  coking_coal: '#f97316',
+}
+const GLOBAL_COAL_METRIC_KEYS = {
+  newcastle: 'etfShares.globalCoal.metrics.newcastle',
+  rotterdam: 'etfShares.globalCoal.metrics.rotterdam',
+  coking_coal: 'etfShares.globalCoal.metrics.coking_coal',
+} as const
 const YEAR_COLORS = ['#94a3b8', '#8b5cf6', '#3b82f6', '#f59e0b', '#059669']
 const GROUP_LABEL_KEYS = {
   hs300: 'etfShares.groups.hs300',
@@ -244,6 +267,7 @@ const GROUP_LABEL_KEYS = {
   coalPrice: 'etfShares.groups.coalPrice',
   coalMonthly: 'etfShares.groups.coalMonthly',
   coalPowerProfit: 'etfShares.groups.coalPowerProfit',
+  globalCoal: 'etfShares.groups.globalCoal',
   aluminum: 'etfShares.groups.aluminum',
   aluminumInventory: 'etfShares.groups.aluminumInventory',
   goldReserves: 'etfShares.groups.goldReserves',
@@ -1652,6 +1676,11 @@ function DualAxisChart({
   rightUnit,
   leftDigits = 0,
   rightDigits = 0,
+  extraLeftValues,
+  extraLeftLabel,
+  extraLeftColor,
+  extraLeftUnit,
+  extraLeftDigits = 0,
   ariaLabel,
 }: {
   dates: string[]
@@ -1667,12 +1696,20 @@ function DualAxisChart({
   rightUnit?: string
   leftDigits?: number
   rightDigits?: number
+  extraLeftValues?: Array<number | null>
+  extraLeftLabel?: string
+  extraLeftColor?: string
+  extraLeftUnit?: string
+  extraLeftDigits?: number
   ariaLabel: string
 }) {
   const [hoverIndex, setHoverIndex] = useState<number | null>(null)
   const model = useMemo(() => {
     if (dates.length === 0) return null
-    const leftScale = buildScale(leftValues, 5)
+    const leftScale = buildScale(
+      extraLeftValues ? [...leftValues, ...extraLeftValues] : leftValues,
+      5,
+    )
     const rightScale = buildScale(rightValues, 5)
     if (!leftScale || !rightScale) return null
     const innerWidth = CHART_WIDTH - DUAL_PADDING.left - DUAL_PADDING.right
@@ -1700,6 +1737,9 @@ function DualAxisChart({
           .join(' '),
       )
     const leftPaths = pathFor(buildSegments(leftValues), yLeft)
+    const extraLeftPaths = extraLeftValues
+      ? pathFor(buildSegments(extraLeftValues), yLeft)
+      : []
     const rightPaths = pathFor(buildSegments(rightValues), yRight)
     const xTicks = pickTickIndexes(dates.length, 7).map((index, position, all) => {
       const anchor: 'start' | 'middle' | 'end' =
@@ -1713,10 +1753,11 @@ function DualAxisChart({
       yRight,
       xOf,
       leftPaths,
+      extraLeftPaths,
       rightPaths,
       xTicks,
     }
-  }, [dates, leftValues, rightValues])
+  }, [dates, leftValues, rightValues, extraLeftValues])
 
   if (!model) {
     return (
@@ -1744,6 +1785,8 @@ function DualAxisChart({
   const alignLeft = hoverX != null && hoverX > CHART_WIDTH * 0.62
   const leftHover = hoverIndex == null ? null : leftValues[hoverIndex]
   const rightHover = hoverIndex == null ? null : rightValues[hoverIndex]
+  const extraLeftHover =
+    hoverIndex == null || !extraLeftValues ? null : extraLeftValues[hoverIndex]
 
   return (
     <div
@@ -1820,6 +1863,17 @@ function DualAxisChart({
             strokeLinejoin="round"
           />
         ))}
+        {model.extraLeftPaths.map((path, index) => (
+          <path
+            key={`extra-left-path-${index}`}
+            d={path}
+            fill="none"
+            stroke={extraLeftColor ?? leftColor}
+            strokeWidth={2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        ))}
         {model.rightPaths.map((path, index) => (
           <path
             key={`right-path-${index}`}
@@ -1877,6 +1931,21 @@ function DualAxisChart({
                 {(leftUnit ?? valueUnit) ? ` ${leftUnit ?? valueUnit}` : ''}
               </span>
             </div>
+            {extraLeftLabel && extraLeftValues && (
+              <div className="flex items-center gap-1.5 text-[11px]">
+                <span
+                  className="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
+                  style={{ backgroundColor: extraLeftColor ?? leftColor }}
+                />
+                <span className="text-muted-foreground">{extraLeftLabel}</span>
+                <span className="ml-auto whitespace-nowrap font-mono font-medium text-foreground">
+                  {formatValue(extraLeftHover, extraLeftDigits)}
+                  {(extraLeftUnit ?? leftUnit ?? valueUnit)
+                    ? ` ${extraLeftUnit ?? leftUnit ?? valueUnit}`
+                    : ''}
+                </span>
+              </div>
+            )}
             <div className="flex items-center gap-1.5 text-[11px]">
               <span
                 className="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
@@ -2390,8 +2459,125 @@ function ThreeGorgesDashboard({ data }: { data: MetricsPayload }) {
   )
 }
 
-type CoalEditor = { mode: 'create' } | { mode: 'edit'; original: string }
+function GlobalCoalDashboard({ data }: { data: MetricsPayload }) {
+  const { t } = useTranslation('configuration')
+  const newcastle = data.series.newcastle ?? []
+  const rotterdam = data.series.rotterdam ?? []
+  const cokingCoal = data.series.coking_coal ?? []
+  const usdUnit = t('etfShares.globalCoal.units.usd')
+  const cnyUnit = t('etfShares.globalCoal.units.cny')
+  const metricLabel = (metric: MarginMetric) => {
+    const key =
+      GLOBAL_COAL_METRIC_KEYS[metric.id as keyof typeof GLOBAL_COAL_METRIC_KEYS]
+    return key ? t(key) : metric.label ?? metric.id
+  }
+  const legend = data.metrics.map((metric) => ({
+    code: metric.id,
+    name: `${metricLabel(metric)} ${metric.axis === 'right' ? '(R)' : '(L)'}`,
+    color: GLOBAL_COAL_METRIC_COLORS[metric.id] ?? '#64748b',
+  }))
+  const sources = data.sources ?? []
 
+  return (
+    <div className="space-y-4">
+      <section className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+        {data.metrics.map((metric) => (
+          <MetricCard
+            key={metric.id}
+            metric={metric}
+            label={metricLabel(metric)}
+            unit={metric.id === 'coking_coal' ? cnyUnit : usdUnit}
+            color={GLOBAL_COAL_METRIC_COLORS[metric.id] ?? '#64748b'}
+            digits={2}
+          />
+        ))}
+      </section>
+
+      <section className="card overflow-hidden">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border/60 px-4 py-2.5">
+          <span
+            className="h-4 w-1 rounded"
+            style={{ backgroundColor: GLOBAL_COAL_METRIC_COLORS.newcastle }}
+          />
+          <h2 className="text-[13px] font-semibold">
+            {t('etfShares.globalCoal.charts.title')}
+          </h2>
+          <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+            {t('etfShares.globalCoal.charts.daily')}
+          </span>
+          <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+            {t('etfShares.globalCoal.charts.mixed')}
+          </span>
+          {data.as_of && (
+            <span className="ml-auto font-mono text-[11px] text-muted-foreground">
+              {data.as_of}
+            </span>
+          )}
+        </div>
+        <div className="px-2 pb-2 pt-3 md:px-4">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2 px-1">
+            <p className="text-[11px] text-muted-foreground/80">
+              {t('etfShares.globalCoal.charts.hint')}
+            </p>
+            <ChartLegend items={legend} />
+          </div>
+          <DualAxisChart
+            dates={data.dates}
+            leftValues={newcastle}
+            extraLeftValues={rotterdam}
+            extraLeftLabel={t('etfShares.globalCoal.metrics.rotterdam')}
+            extraLeftColor={GLOBAL_COAL_METRIC_COLORS.rotterdam}
+            extraLeftUnit={usdUnit}
+            extraLeftDigits={2}
+            rightValues={cokingCoal}
+            leftLabel={t('etfShares.globalCoal.axes.left')}
+            rightLabel={t('etfShares.globalCoal.axes.right')}
+            leftColor={GLOBAL_COAL_METRIC_COLORS.newcastle}
+            rightColor={GLOBAL_COAL_METRIC_COLORS.coking_coal}
+            emptyText={t('etfShares.globalCoal.charts.empty')}
+            valueUnit=""
+            leftUnit={usdUnit}
+            rightUnit={cnyUnit}
+            leftDigits={2}
+            rightDigits={2}
+            ariaLabel={t('etfShares.globalCoal.charts.title')}
+          />
+        </div>
+        <div className="space-y-2 border-t border-border/60 px-4 py-3">
+          <div className="text-[11px] font-medium text-muted-foreground">
+            {t('etfShares.globalCoal.sourcesTitle')}
+          </div>
+          <ul className="space-y-1 text-[11px] text-muted-foreground/80">
+            {sources.map((source) => (
+              <li key={source.id} className="flex flex-wrap gap-x-1.5">
+                <span>{source.name}</span>
+                <span>· {source.cadence}</span>
+                {source.start && (
+                  <span>
+                    · {t('etfShares.globalCoal.since', { date: source.start })}
+                  </span>
+                )}
+                {source.latest && (
+                  <span>
+                    · {t('etfShares.globalCoal.latest', { date: source.latest })}
+                  </span>
+                )}
+                {!source.latest && (
+                  <span>· {t('etfShares.globalCoal.noSourceData')}</span>
+                )}
+              </li>
+            ))}
+          </ul>
+          <p className="text-[11px] text-muted-foreground/80">
+            {t('etfShares.globalCoal.caveat')}
+          </p>
+        </div>
+      </section>
+    </div>
+  )
+}
+
+type CoalEditor = { mode: 'create' } | { mode: 'edit'; original: string }
 interface YearOverlayPoint {
   day: string
   value: number
@@ -3752,51 +3938,58 @@ function EtfSharesPage() {
   const isAluminumGroup = activeGroup?.id === 'aluminum'
   const isInventoryGroup = activeGroup?.id === 'aluminumInventory'
   const isThreeGorgesGroup = activeGroup?.id === 'threeGorges'
+  const isGlobalCoalGroup = activeGroup?.id === 'globalCoal'
   const pageTitle = isCoalGroup
     ? t('etfShares.coal.title')
     : isCoalMonthlyGroup
       ? t('etfShares.coalMonthly.title')
       : isCoalPowerProfitGroup
         ? t('etfShares.coalPowerProfit.title')
-        : isInventoryGroup
-          ? t('etfShares.aluminumInventory.title')
-          : isAluminumGroup
-            ? t('etfShares.aluminum.title')
-            : isThreeGorgesGroup
-              ? t('etfShares.threeGorges.title')
-              : isMarginGroup
-                ? t('etfShares.margin.title')
-                : t('etfShares.title')
+        : isGlobalCoalGroup
+          ? t('etfShares.globalCoal.title')
+          : isInventoryGroup
+            ? t('etfShares.aluminumInventory.title')
+            : isAluminumGroup
+              ? t('etfShares.aluminum.title')
+              : isThreeGorgesGroup
+                ? t('etfShares.threeGorges.title')
+                : isMarginGroup
+                  ? t('etfShares.margin.title')
+                  : t('etfShares.title')
   const pageBadge = isCoalGroup
     ? t('etfShares.coal.badge')
     : isCoalMonthlyGroup
       ? t('etfShares.coalMonthly.badge')
       : isCoalPowerProfitGroup
         ? t('etfShares.coalPowerProfit.badge')
-        : isInventoryGroup
-          ? t('etfShares.aluminumInventory.badge')
-          : isAluminumGroup
-            ? t('etfShares.aluminum.badge')
-            : isThreeGorgesGroup
-              ? t('etfShares.threeGorges.badge')
-              : isMarginGroup
-                ? t('etfShares.margin.badge')
-                : t('etfShares.badge')
+        : isGlobalCoalGroup
+          ? t('etfShares.globalCoal.badge')
+          : isInventoryGroup
+            ? t('etfShares.aluminumInventory.badge')
+            : isAluminumGroup
+              ? t('etfShares.aluminum.badge')
+              : isThreeGorgesGroup
+                ? t('etfShares.threeGorges.badge')
+                : isMarginGroup
+                  ? t('etfShares.margin.badge')
+                  : t('etfShares.badge')
   const pageSubtitle = isCoalGroup
     ? t('etfShares.coal.subtitle')
     : isCoalMonthlyGroup
       ? t('etfShares.coalMonthly.subtitle')
       : isCoalPowerProfitGroup
         ? t('etfShares.coalPowerProfit.subtitle')
-        : isInventoryGroup
-          ? t('etfShares.aluminumInventory.subtitle')
-          : isAluminumGroup
-            ? t('etfShares.aluminum.subtitle')
-            : isThreeGorgesGroup
-              ? t('etfShares.threeGorges.subtitle')
-              : isMarginGroup
-                ? t('etfShares.margin.subtitle')
-                : t('etfShares.subtitle')
+        : isGlobalCoalGroup
+          ? t('etfShares.globalCoal.subtitle')
+          : isInventoryGroup
+            ? t('etfShares.aluminumInventory.subtitle')
+            : isAluminumGroup
+              ? t('etfShares.aluminum.subtitle')
+              : isThreeGorgesGroup
+                ? t('etfShares.threeGorges.subtitle')
+                : isMarginGroup
+                  ? t('etfShares.margin.subtitle')
+                  : t('etfShares.subtitle')
   const cardUnit = t('etfShares.unit')
   const chartTitle = t('etfShares.chart.title')
   const chartEmpty = t('etfShares.chart.empty')
@@ -3807,30 +4000,34 @@ function EtfSharesPage() {
       ? t('etfShares.coalMonthly.loading')
       : isCoalPowerProfitGroup
         ? t('etfShares.coalPowerProfit.loading')
-        : isInventoryGroup
-          ? t('etfShares.aluminumInventory.loading')
-          : isAluminumGroup
-            ? t('etfShares.aluminum.loading')
-            : isThreeGorgesGroup
-              ? t('etfShares.threeGorges.loading')
-              : isMarginGroup
-                ? t('etfShares.margin.loading')
-                : t('etfShares.loading')
+        : isGlobalCoalGroup
+          ? t('etfShares.globalCoal.loading')
+          : isInventoryGroup
+            ? t('etfShares.aluminumInventory.loading')
+            : isAluminumGroup
+              ? t('etfShares.aluminum.loading')
+              : isThreeGorgesGroup
+                ? t('etfShares.threeGorges.loading')
+                : isMarginGroup
+                  ? t('etfShares.margin.loading')
+                  : t('etfShares.loading')
   const noDataText = isCoalGroup
     ? t('etfShares.coal.noData')
     : isCoalMonthlyGroup
       ? t('etfShares.coalMonthly.noData')
       : isCoalPowerProfitGroup
         ? t('etfShares.coalPowerProfit.noData')
-        : isInventoryGroup
-          ? t('etfShares.aluminumInventory.noData')
-          : isAluminumGroup
-            ? t('etfShares.aluminum.noData')
-            : isThreeGorgesGroup
-              ? t('etfShares.threeGorges.noData')
-              : isMarginGroup
-                ? t('etfShares.margin.noData')
-                : t('etfShares.errors.noData')
+        : isGlobalCoalGroup
+          ? t('etfShares.globalCoal.noData')
+          : isInventoryGroup
+            ? t('etfShares.aluminumInventory.noData')
+            : isAluminumGroup
+              ? t('etfShares.aluminum.noData')
+              : isThreeGorgesGroup
+                ? t('etfShares.threeGorges.noData')
+                : isMarginGroup
+                  ? t('etfShares.margin.noData')
+                  : t('etfShares.errors.noData')
   const metricsCurve = isMetricsPayload(curve) ? curve : null
   const shareCurve = curve && !isMetricsPayload(curve) ? curve : null
   const hasData = metricsCurve
@@ -3927,15 +4124,19 @@ function EtfSharesPage() {
             ? t('etfShares.coalPowerProfit.updatedCount', {
                 count: curve.coverage.trading_days,
               })
-            : isInventoryGroup
-              ? t('etfShares.aluminumInventory.updatedCount', {
+            : isGlobalCoalGroup
+              ? t('etfShares.globalCoal.updatedCount', {
                   count: curve.coverage.trading_days,
                 })
-              : isThreeGorgesGroup
-                ? t('etfShares.threeGorges.updatedCount', {
+              : isInventoryGroup
+                ? t('etfShares.aluminumInventory.updatedCount', {
                     count: curve.coverage.trading_days,
                   })
-                : t('etfShares.updatedCount', { count: curve.coverage.trading_days })
+                : isThreeGorgesGroup
+                  ? t('etfShares.threeGorges.updatedCount', {
+                      count: curve.coverage.trading_days,
+                    })
+                  : t('etfShares.updatedCount', { count: curve.coverage.trading_days })
       : ''
 
   return (
@@ -4074,6 +4275,8 @@ function EtfSharesPage() {
             <AluminumInventoryDashboard data={metricsCurve} />
           ) : isThreeGorgesGroup && metricsCurve ? (
             <ThreeGorgesDashboard data={metricsCurve} />
+          ) : isGlobalCoalGroup && metricsCurve ? (
+            <GlobalCoalDashboard data={metricsCurve} />
           ) : !hasData ? (
             <section className="card flex h-[320px] flex-col items-center justify-center gap-2 px-6 text-center">
               <p className="text-[13px] text-muted-foreground">{noDataText}</p>

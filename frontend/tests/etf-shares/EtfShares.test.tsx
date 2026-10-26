@@ -80,6 +80,14 @@ const catalog = {
       funds: [],
     },
     {
+      id: 'globalCoal',
+      label: '全球主要煤炭价格',
+      category: 'commodity',
+      available: true,
+      accent: '#1d4ed8',
+      funds: [],
+    },
+    {
       id: 'goldReserves',
       label: '黄金储备',
       category: 'commodity',
@@ -285,6 +293,82 @@ const threeGorgesCurve = {
   coverage: { trading_days: 3, target: 3, complete: true },
 }
 
+const globalCoalCurve = {
+  group: 'globalCoal',
+  group_label: '全球主要煤炭价格',
+  scope: 'ICE 纽卡斯尔/鹿特丹动力煤 · 大商所焦煤主连',
+  as_of: '2026-10-23',
+  dates: ['2026-10-21', '2026-10-22', '2026-10-23'],
+  metrics: [
+    {
+      id: 'newcastle',
+      label: 'ICE-Newcastle 煤',
+      unit: '美元/吨',
+      axis: 'left',
+      latest: 154.45,
+      latest_date: '2026-10-23',
+      delta: 2,
+      delta_pct: 1.3119,
+    },
+    {
+      id: 'rotterdam',
+      label: 'ICE-Rotterdam 煤',
+      unit: '美元/吨',
+      axis: 'left',
+      latest: 147.1,
+      latest_date: '2026-10-20',
+      delta: 0.7,
+      delta_pct: 0.4781,
+    },
+    {
+      id: 'coking_coal',
+      label: '中国-焦煤期货',
+      unit: '元/吨',
+      axis: 'right',
+      latest: 1427.5,
+      latest_date: '2026-10-23',
+      delta: 7,
+      delta_pct: 0.4928,
+    },
+  ],
+  series: {
+    newcastle: [150.1, 152.45, 154.45],
+    rotterdam: [145.0, 146.4, 147.1],
+    coking_coal: [1410, 1420.5, 1427.5],
+  },
+  axes: {
+    left: { label: 'ICE 动力煤', unit: '美元/吨' },
+    right: { label: '焦煤期货', unit: '元/吨' },
+  },
+  sources: [
+    {
+      id: 'newcastle',
+      name: '东方财富 · ICE 纽卡斯尔动力煤连续',
+      url: 'https://quote.eastmoney.com/globalfuture/NCF00Y.html',
+      cadence: '日线',
+      start: '2026-08-25',
+      latest: '2026-10-23',
+    },
+    {
+      id: 'rotterdam',
+      name: 'CNBC · ICE API2 鹿特丹动力煤连续',
+      url: 'https://www.cnbc.com/quotes/@ATW.1',
+      cadence: '日线',
+      start: '2024-10-28',
+      latest: '2026-10-20',
+    },
+    {
+      id: 'coking_coal',
+      name: '新浪财经 · 大商所焦煤主连',
+      url: 'https://finance.sina.com.cn/futures/quotes/JM0.shtml',
+      cadence: '日线',
+      start: '2013-03-22',
+      latest: '2026-10-23',
+    },
+  ],
+  coverage: { trading_days: 3, target: 3, complete: true },
+}
+
 const marginCurve = {
   group: 'margin',
   group_label: '融资融券',
@@ -363,6 +447,9 @@ beforeEach(() => {
     }
     if (path.includes('/curve?group=threeGorges')) {
       return Promise.resolve(threeGorgesCurve)
+    }
+    if (path.includes('/curve?group=globalCoal')) {
+      return Promise.resolve(globalCoalCurve)
     }
     if (path.includes('/curve?group=aluminum')) return Promise.resolve(aluminumCurve)
     if (path.includes('/curve?group=coalPrice')) return Promise.resolve(coalCurve)
@@ -730,6 +817,55 @@ describe('ETF share tracker page', () => {
       vi.mocked(fetchAPI).mock.calls.some((call) =>
         String(call[0]).endsWith('group=threeGorges&days=90'),
       ),
+    ).toBe(true)
+  })
+
+  it('renders the global coal price dual-axis dashboard', async () => {
+    const user = userEvent.setup()
+    render(<EtfSharesPage />)
+    await screen.findAllByText('沪深300ETF华泰柏瑞')
+
+    const entries = screen.getAllByRole('button', { name: '全球主要煤炭价格' })
+    await user.click(entries[0])
+
+    expect(
+      await screen.findByRole('heading', { name: '全球主要煤炭价格' }),
+    ).toBeTruthy()
+    expect(screen.getByText('ICE · 大商所')).toBeTruthy()
+    for (const label of [
+      'ICE-Newcastle 煤',
+      'ICE-Rotterdam 煤',
+      '中国-焦煤期货',
+    ]) {
+      expect(screen.getAllByText(label).length).toBeGreaterThan(0)
+    }
+    expect(screen.getAllByText('154.45').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('147.10').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('1427.50').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('美元/吨').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('元/吨').length).toBeGreaterThan(0)
+    expect(screen.getByText('ICE-Newcastle 煤 (L)')).toBeTruthy()
+    expect(screen.getByText('ICE-Rotterdam 煤 (L)')).toBeTruthy()
+    expect(screen.getByText('中国-焦煤期货 (R)')).toBeTruthy()
+    expect(
+      screen.getByRole('img', { name: '煤炭价格走势（双轴）' }),
+    ).toBeTruthy()
+    expect(screen.getByText(/数据更新：2026-10-23/)).toBeTruthy()
+    expect(screen.getByText(/（共 3 个交易日）/)).toBeTruthy()
+    expect(
+      screen.getByRole('combobox', { name: '近 90 个交易日' }),
+    ).toBeTruthy()
+    expect(screen.getByText(/东方财富 · ICE 纽卡斯尔动力煤连续/)).toBeTruthy()
+    expect(screen.getByText(/CNBC · ICE API2 鹿特丹动力煤连续/)).toBeTruthy()
+    expect(screen.getByText(/新浪财经 · 大商所焦煤主连/)).toBeTruthy()
+    expect(screen.getByText(/2026-08-25 起/)).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: '每日份额变化量' })).toBeNull()
+    expect(
+      vi
+        .mocked(fetchAPI)
+        .mock.calls.some((call) =>
+          String(call[0]).endsWith('group=globalCoal&days=90'),
+        ),
     ).toBe(true)
   })
 

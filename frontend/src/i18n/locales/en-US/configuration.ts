@@ -370,7 +370,7 @@ export const configuration = {
     messages: { loadFailed: 'Load failed', selectStock: 'Select a stock', addCondition: 'Add at least one condition', saved: 'Rule saved', saveFailed: 'Save failed', toggleFailed: 'Failed to toggle rule', deleteConfirm: 'Delete rule “{{name}}”?', deleted: 'Deleted', deleteFailed: 'Delete failed', scanDone: 'Scan complete: {{triggered}} triggered, {{skipped}} skipped', scanFailed: 'Scan failed', testDone: 'Test complete: {{status}}', testFailed: 'Test failed', hitsFailed: 'Failed to load matches' },
   },
   dashboard: {
-    title: 'What to watch today', autoRefresh: 'Auto-refresh', loading: 'Loading…', noHoldings: 'No holdings yet. Add holdings to see today’s P&L and portfolio trend.', todayPnl: 'Today P&L', unrealized: 'Unrealized P&L', excess60: '60-day excess', position: 'Position', portfolioPage: 'Portfolio →', important: 'Important today', importantHint: 'What to watch in your holdings and watchlist', shareImage: 'Share image', noEventsTodo: 'No moves or triggers today ✓ · To-do:', addAlert: 'Add alert', expiring: 'Expiring', noSignal: 'No notable moves or signals today ✓', health: 'Portfolio health', scorecard: 'Scorecard', healthImage: 'Health card', noHoldingsHealth: 'No holdings yet. Add holdings to see risk and benchmark performance.', myPortfolio: 'My portfolio', excess: 'Excess', benchmarkCalculating: 'Calculating benchmark comparison… (loading all holding candles, about 1 minute)', benchmarkInsufficient: 'Not enough data to calculate benchmark comparison', benchmarkFailed: 'Benchmark comparison failed (timeout or network error)', retry: 'Retry', holdings: '{{count}} holdings · largest position', leader: 'Leader', laggard: 'Drag', noRisk: '✓ No material concentration or distribution risk detected', aiChecking: 'AI health check…', aiReport: 'AI health report', opportunities: 'Featured opportunities', opportunitiesPage: 'Open opportunities', noOpportunities: 'No active opportunity signals', score: 'Score', collapse: 'Collapse', expand: 'Expand', alertHit: 'Alert hit', holding: 'Holding', watch: 'Watchlist', risk: 'Risk', opportunity: 'Opportunity', refreshed: '{{time}} refreshed', weekday: 'Day {{day}}', alerts: { surge: 'Surge', plunge: 'Plunge', high_volume: 'High volume', breakout: 'Breakout', breakdown: 'Breakdown', limit_up: 'Limit up', limit_down: 'Limit down' }, feed: { alert: 'Alert hit', holding: 'Holding', watch: 'Watchlist', risk: 'Risk', opportunity: 'Opportunity' }, markets: { CN: 'Mainland China', HK: 'Hong Kong', US: 'US' }, indices: { sseComposite: 'SSE Composite', szseComponent: 'SZSE Component', chinext: 'ChiNext', star50: 'STAR 50', hangSeng: 'Hang Seng Index', nasdaq: 'Nasdaq Composite', dowJones: 'Dow Jones', csi300: 'CSI 300' }, diagnosticAlerts: { single_concentration: 'Single-position concentration is high: largest holding is {{weight}}%', hhi_concentration: 'Portfolio concentration is high (HHI={{hhi}})', too_few_positions: 'Only {{count}} holding; diversification is limited', market_concentration: '{{market}} exposure is high ({{weight}}%)' }, defaultBenchmark: 'CSI 300', briefing: 'Pre/post-market brief', fearGreed: { title: 'A-share fear & greed', hint: '0–100; higher means greedier. Weighted from volatility, relative turnover, margin balance, market breadth, RSI and limit-up/down ratio; refreshed about hourly.', unavailable: 'Fear & greed index unavailable', change: 'Change vs prior trading day (points)', fearSide: '0 · Fear', greedSide: '100 · Greed', asOf: 'Data {{date}}', compare: 'Compare: Funddb ↗', compareHint: 'Funddb uses a different methodology (option IV, turnover, new highs, futures basis, stock-bond spread, margin). Readings are not directly comparable.', level: { extreme_fear: 'Extreme fear', fear: 'Fear', neutral: 'Neutral', greed: 'Greed', extreme_greed: 'Extreme greed' } } },
+    title: 'What to watch today', autoRefresh: 'Auto-refresh', loading: 'Loading…', noHoldings: 'No holdings yet. Add holdings to see today’s P&L and portfolio trend.', todayPnl: 'Today P&L', unrealized: 'Unrealized P&L', excess60: '60-day excess', position: 'Position', portfolioPage: 'Portfolio →', important: 'Important today', importantHint: 'What to watch in your holdings and watchlist', shareImage: 'Share image', noEventsTodo: 'No moves or triggers today ✓ · To-do:', addAlert: 'Add alert', expiring: 'Expiring', noSignal: 'No notable moves or signals today ✓', health: 'Portfolio health', scorecard: 'Scorecard', healthImage: 'Health card', noHoldingsHealth: 'No holdings yet. Add holdings to see risk and benchmark performance.', myPortfolio: 'My portfolio', excess: 'Excess', benchmarkCalculating: 'Calculating benchmark comparison… (loading all holding candles, about 1 minute)', benchmarkInsufficient: 'Not enough data to calculate benchmark comparison', benchmarkFailed: 'Benchmark comparison failed (timeout or network error)', retry: 'Retry', holdings: '{{count}} holdings · largest position', leader: 'Leader', laggard: 'Drag', contributions: 'Show all contributions ({{count}})', holdingsColumn: 'Holding', weight: 'Weight', periodReturn: 'Period return', contribution: 'Contribution', noRisk: '✓ No material concentration or distribution risk detected', aiChecking: 'AI health check…', aiReport: 'AI health report', opportunities: 'Featured opportunities', opportunitiesPage: 'Open opportunities', noOpportunities: 'No active opportunity signals', score: 'Score', collapse: 'Collapse', expand: 'Expand', alertHit: 'Alert hit', holding: 'Holding', watch: 'Watchlist', risk: 'Risk', opportunity: 'Opportunity', refreshed: '{{time}} refreshed', weekday: 'Day {{day}}', alerts: { surge: 'Surge', plunge: 'Plunge', high_volume: 'High volume', breakout: 'Breakout', breakdown: 'Breakdown', limit_up: 'Limit up', limit_down: 'Limit down' }, feed: { alert: 'Alert hit', holding: 'Holding', watch: 'Watchlist', risk: 'Risk', opportunity: 'Opportunity' }, markets: { CN: 'Mainland China', HK: 'Hong Kong', US: 'US' }, indices: { sseComposite: 'SSE Composite', szseComponent: 'SZSE Component', chinext: 'ChiNext', star50: 'STAR 50', hangSeng: 'Hang Seng Index', nasdaq: 'Nasdaq Composite', dowJones: 'Dow Jones', csi300: 'CSI 300' }, diagnosticAlerts: { single_concentration: 'Single-position concentration is high: largest holding is {{weight}}%', hhi_concentration: 'Portfolio concentration is high (HHI={{hhi}})', too_few_positions: 'Only {{count}} holding; diversification is limited', market_concentration: '{{market}} exposure is high ({{weight}}%)' }, defaultBenchmark: 'CSI 300', briefing: 'Pre/post-market brief', fearGreed: { title: 'A-share fear & greed', hint: '0–100; higher means greedier. Weighted from volatility, relative turnover, margin balance, market breadth, RSI and limit-up/down ratio; refreshed about hourly.', unavailable: 'Fear & greed index unavailable', change: 'Change vs prior trading day (points)', fearSide: '0 · Fear', greedSide: '100 · Greed', asOf: 'Data {{date}}', compare: 'Compare: Funddb ↗', compareHint: 'Funddb uses a different methodology (option IV, turnover, new highs, futures basis, stock-bond spread, margin). Readings are not directly comparable.', level: { extreme_fear: 'Extreme fear', fear: 'Fear', neutral: 'Neutral', greed: 'Greed', extreme_greed: 'Extreme greed' } } },
   opportunities: {
     actionCodes: { buy: 'Buy', hold: 'Watch', add: 'Build position', sell: 'Sell', reduce: 'Reduce', avoid: 'Avoid', watch: 'Watch', alert: 'Alert' },
     strategies: { trend_follow: 'Trend continuation', macd_golden: 'MACD golden cross', volume_breakout: 'Volume breakout', momentum: 'Momentum', pullback: 'Pullback confirmation', rebound: 'Oversold rebound', watchlist_agent: 'Agent suggestion', market_scan: 'Market scan', tradingagents: 'TradingAgents deep analysis' },
@@ -558,6 +558,7 @@ export const configuration = {
       coalPrice: 'Coal prices',
       coalMonthly: 'Coal output & profit',
       coalPowerProfit: 'Coal & power profit',
+      globalCoal: 'Global coal prices',
       aluminum: 'Aluminum & alumina',
       aluminumInventory: 'Aluminum ingot inventory',
       goldReserves: 'Gold reserves',
@@ -746,6 +747,41 @@ export const configuration = {
         storage: 'Stored in {{database}} · table {{table}}',
         seedFile: 'Initial data: {{path}} (first-run seeding only)',
       },
+    },
+    globalCoal: {
+      title: 'Global coal prices',
+      badge: 'ICE · DCE',
+      subtitle:
+        'ICE Newcastle and Rotterdam thermal coal (USD/t) versus China coking coal futures (CNY/t)',
+      loading: 'Loading global coal prices…',
+      noData: 'The data source returned no coal prices. Refresh and try again.',
+      updatedCount: ' ({{count}} trading days)',
+      metrics: {
+        newcastle: 'ICE-Newcastle coal',
+        rotterdam: 'ICE-Rotterdam coal',
+        coking_coal: 'China coking coal futures',
+      },
+      units: {
+        usd: 'USD/t',
+        cny: 'CNY/t',
+      },
+      axes: {
+        left: 'ICE thermal coal (USD/t)',
+        right: 'Coking coal futures (CNY/t)',
+      },
+      charts: {
+        title: 'Coal price trend (dual axis)',
+        daily: 'Daily',
+        mixed: 'Multi-source',
+        hint: 'Left: ICE Newcastle/Rotterdam thermal coal; right: DCE coking coal continuous',
+        empty: 'No coal price data',
+      },
+      sourcesTitle: 'Sources',
+      since: 'from {{date}}',
+      latest: 'latest {{date}}',
+      noSourceData: 'unavailable',
+      caveat:
+        'Scope: ICE Newcastle and Rotterdam thermal coal are quoted in USD/t, while China coking coal is the DCE continuous contract in CNY/t, so two axes are used. The three sources follow different trading calendars and missing days are not filled. The Newcastle continuous contract has a short history on Eastmoney, so earlier dates in the window are blank.',
     },
     aluminum: {
       title: 'Aluminum & alumina · Spot prices',

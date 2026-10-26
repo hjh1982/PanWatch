@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
-import { AlertTriangle, Activity, ShieldAlert, Newspaper, Share2, Gauge } from 'lucide-react'
+import { AlertTriangle, Activity, ShieldAlert, ChevronDown, Newspaper, Share2, Gauge } from 'lucide-react'
 import {
   dashboardApi,
   portfolioApi,
@@ -221,6 +221,7 @@ export default function DashboardPage() {
   const [todos, setTodos] = useState<PortfolioTodo[]>([])
   const [curated, setCurated] = useState<{ key: string; items: CuratedItem[] }>({ key: '', items: [] })
   const [attribution, setAttribution] = useState<AttributionItem[]>([])
+  const [showAllContrib, setShowAllContrib] = useState(false)
   const [aiReview, setAiReview] = useState<PortfolioAiReview | null>(null)
   const [aiReviewLoading, setAiReviewLoading] = useState(false)
   const [brief, setBrief] = useState<DashboardBrief | null>(null)
@@ -823,6 +824,45 @@ export default function DashboardPage() {
                     </div>
                   )
                 })}
+
+              {attribution.length > 2 && (
+                <div>
+                  <button
+                    type="button"
+                    onClick={() => setShowAllContrib(v => !v)}
+                    aria-expanded={showAllContrib}
+                    className="flex w-full items-center justify-center gap-1 rounded py-0.5 text-[11px] text-muted-foreground transition-colors hover:text-primary"
+                  >
+                    {showAllContrib
+                      ? dashboardT('dashboard.collapse')
+                      : dashboardT('dashboard.contributions', { count: attribution.length })}
+                    <ChevronDown className={`h-3 w-3 transition-transform ${showAllContrib ? 'rotate-180' : ''}`} />
+                  </button>
+                  {showAllContrib && (
+                    <div className="mt-1 space-y-1">
+                      <div className="flex items-center gap-2 px-1 text-[10px] text-muted-foreground">
+                        <span className="min-w-0 flex-1">{dashboardT('dashboard.holdingsColumn')}</span>
+                        <span className="w-11 shrink-0 text-right">{dashboardT('dashboard.weight')}</span>
+                        <span className="w-14 shrink-0 text-right">{dashboardT('dashboard.periodReturn')}</span>
+                        <span className="w-14 shrink-0 text-right">{dashboardT('dashboard.contribution')}</span>
+                      </div>
+                      <div className="scrollbar max-h-[220px] space-y-0.5 overflow-y-auto pr-1">
+                        {attribution.map(item => (
+                          <div
+                            key={`${item.market}:${item.symbol}`}
+                            className="flex items-center gap-2 rounded px-1 py-0.5 text-[11px] hover:bg-accent/30"
+                          >
+                            <span className="min-w-0 flex-1 truncate text-foreground">{item.name}</span>
+                            <span className="w-11 shrink-0 text-right font-mono text-muted-foreground">{item.weight_pct.toFixed(1)}%</span>
+                            <span className={`w-14 shrink-0 text-right font-mono ${moveColor(item.return_pct)}`}>{pct(item.return_pct)}</span>
+                            <span className={`w-14 shrink-0 text-right font-mono ${moveColor(item.contribution_pct)}`}>{pct(item.contribution_pct)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {localizedDiagnosticAlerts.length > 0 ? (
                 <div className="space-y-1 pt-1">

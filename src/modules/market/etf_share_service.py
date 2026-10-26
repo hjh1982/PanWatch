@@ -105,6 +105,12 @@ GROUPS: tuple[GroupDef, ...] = (
         accent="#7c3aed",
     ),
     GroupDef(
+        id="globalCoal",
+        label="全球主要煤炭价格",
+        category="commodity",
+        accent="#1d4ed8",
+    ),
+    GroupDef(
         id="aluminum",
         label="电解铝·氧化铝",
         category="commodity",

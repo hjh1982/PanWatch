@@ -101,6 +101,7 @@ def market_get(
     trust_env: bool = True,  # 遵循进程 env 代理(HTTP_PROXY/NO_PROXY),由 apply_proxy_env 统一设
     follow_redirects: bool = True,
     verify: bool = True,
+    force_ipv4: bool = False,  # 部分源(如东财)有 AAAA 但本机 IPv6 不通,需强制 IPv4
 ) -> Any | None:
     """按系统代理(env)+ host 节流 + 退避重试。成功返回解析结果,失败返回 None 并打带来源的日志。"""
     last_err: Any = None
@@ -119,7 +120,12 @@ def market_get(
             last_err = TimeoutError("market-data retry budget exhausted")
             break
         try:
+            # local_address 为 IPv4 时会把 socket 族固定为 AF_INET,规避坏 IPv6 路由
+            transport = (
+                httpx.HTTPTransport(local_address="0.0.0.0") if force_ipv4 else None
+            )
             with httpx.Client(
+                transport=transport,
                 follow_redirects=follow_redirects,
                 timeout=min(timeout, remaining),
                 headers=headers,
