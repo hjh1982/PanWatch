@@ -17,6 +17,7 @@ from src.modules.market import (
     global_coal_service,
     margin_service,
     three_gorges_service,
+    us_compare_service,
     us_m2_gold_service,
 )
 from src.modules.market.etf_share_service import catalog_payload
@@ -75,6 +76,12 @@ def _load_curve(
         return us_m2_gold_service.get_curve_payload(
             group, days, force=force
         )
+    if group == us_compare_service.US_COMPARE_GROUP_ID:
+        return us_compare_service.get_compare_payload(
+            ",".join(us_compare_service.DEFAULT_SYMBOLS),
+            "ytd",
+            force=force,
+        )
     return etf_share_service.get_curve_payload(db, group, days, force=force)
 
 
@@ -123,6 +130,25 @@ async def etf_share_refresh(
         )
     except ValueError as exc:
         raise api_error(400, "etf_share_group_invalid", "未知的 ETF 分组") from exc
+
+
+@router.get("/us-compare")
+async def etf_share_us_compare(
+    symbols: str = Query(
+        default=",".join(us_compare_service.DEFAULT_SYMBOLS),
+        max_length=120,
+    ),
+    period: str = Query(default="ytd", alias="range"),
+    refresh: bool = Query(default=False),
+):
+    try:
+        return await asyncio.to_thread(
+            lambda: us_compare_service.get_compare_payload(
+                symbols, period, force=refresh
+            )
+        )
+    except ValueError as exc:
+        raise api_error(400, "us_compare_invalid", str(exc)) from exc
 
 
 @router.post("/coal/points")

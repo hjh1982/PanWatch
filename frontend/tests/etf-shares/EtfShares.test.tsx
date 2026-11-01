@@ -104,6 +104,14 @@ const catalog = {
       funds: [],
     },
     {
+      id: 'usCompare',
+      label: '美股收益对比',
+      category: 'broad',
+      available: true,
+      accent: '#0284c7',
+      funds: [],
+    },
+    {
       id: 'goldReserves',
       label: '黄金储备',
       category: 'commodity',
@@ -510,6 +518,65 @@ const usM2GoldCurve = {
   ],
 }
 
+const usComparePayload = {
+  group: 'usCompare',
+  group_label: '美股收益对比',
+  scope: '美股 ETF/指数区间价格收益（不含分红）',
+  range: 'ytd',
+  range_label: '年初至今',
+  metric: { id: 'price_return', label: '价格收益（不含分红）' },
+  as_of: '2026-10-30',
+  dates: ['2026-01-02', '2026-06-30', '2026-10-30'],
+  symbols: ['SCHD', 'SP500', 'QQQ'],
+  missing: [],
+  items: [
+    {
+      code: 'SCHD',
+      label: '嘉信美国红利股ETF',
+      start_date: '2025-12-31',
+      latest_date: '2026-10-30',
+      latest: 30.4411,
+      points: 3,
+    },
+    {
+      code: 'SP500',
+      label: '标普500指数',
+      start_date: '2025-12-31',
+      latest_date: '2026-10-30',
+      latest: 10.7307,
+      points: 3,
+    },
+    {
+      code: 'QQQ',
+      label: '纳指100ETF',
+      start_date: '2025-12-31',
+      latest_date: '2026-10-30',
+      latest: 12.4009,
+      points: 3,
+    },
+  ],
+  series: {
+    SCHD: [0, 15.2, 30.4411],
+    SP500: [0, 5.1, 10.7307],
+    QQQ: [0, 6.4, 12.4009],
+  },
+  coverage: { trading_days: 3, target: 3, complete: true },
+  sources: [
+    {
+      id: 'nasdaq',
+      name: 'Nasdaq 历史行情（已按拆股调整）',
+      url: 'https://www.nasdaq.com/market-activity/etf',
+      cadence: '日度',
+    },
+    {
+      id: 'tencent',
+      name: '腾讯美股指数日K',
+      url: 'https://gu.qq.com/',
+      cadence: '日度',
+    },
+  ],
+}
+
 const marginCurve = {
   group: 'margin',
   group_label: '融资融券',
@@ -597,6 +664,16 @@ beforeEach(() => {
     }
     if (path.includes('/curve?group=usM2Gold')) {
       return Promise.resolve(usM2GoldCurve)
+    }
+    if (path.includes('/us-compare')) {
+      const query = new URLSearchParams(String(path).split('?')[1] ?? '')
+      const range = query.get('range') ?? 'ytd'
+      return Promise.resolve({
+        ...usComparePayload,
+        range,
+        range_label:
+          range === '1y' ? '近 1 年' : range === '3y' ? '近 3 年' : '年初至今',
+      })
     }
     if (path.includes('/curve?group=aluminum')) return Promise.resolve(aluminumCurve)
     if (path.includes('/curve?group=coalPrice')) return Promise.resolve(coalCurve)
@@ -1095,6 +1172,60 @@ describe('ETF share tracker page', () => {
         .mocked(fetchAPI)
         .mock.calls.some((call) =>
           String(call[0]).endsWith('group=usM2Gold&days=90'),
+        ),
+    ).toBe(true)
+  })
+
+  it('renders the U.S. returns comparison dashboard', async () => {
+    const user = userEvent.setup()
+    render(<EtfSharesPage />)
+    await screen.findAllByText('沪深300ETF华泰柏瑞')
+
+    await user.click(screen.getAllByRole('button', { name: '美股收益对比' })[0])
+
+    expect(
+      await screen.findByRole('heading', { name: '美股收益对比' }),
+    ).toBeTruthy()
+    expect(screen.getByText('价格收益 · 不含分红')).toBeTruthy()
+    expect(screen.getAllByText('嘉信美国红利股ETF').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('标普500指数').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('+30.44%').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('+10.73%').length).toBeGreaterThan(0)
+    expect(screen.getByRole('img', { name: '区间累计收益' })).toBeTruthy()
+    expect(screen.getByText(/Nasdaq 历史行情（已按拆股调整）/)).toBeTruthy()
+    expect(screen.getAllByText(/腾讯美股指数日K/).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/基准 2025-12-31/).length).toBeGreaterThan(0)
+    expect(screen.queryByRole('combobox', { name: '近 90 个交易日' })).toBeNull()
+    expect(
+      vi
+        .mocked(fetchAPI)
+        .mock.calls.some((call) =>
+          String(call[0]).includes(
+            'us-compare?symbols=SCHD%2CSP500%2CDGRO%2CQQQ%2CVYM%2CSMH&range=ytd',
+          ),
+        ),
+    ).toBe(true)
+
+    await user.click(screen.getByRole('button', { name: '近 1 年' }))
+    expect(
+      vi
+        .mocked(fetchAPI)
+        .mock.calls.some((call) => String(call[0]).includes('range=1y')),
+    ).toBe(true)
+
+    await user.type(
+      screen.getByRole('textbox', { name: '对比标的' }),
+      'spy',
+    )
+    await user.click(screen.getByRole('button', { name: '添加' }))
+    expect(await screen.findByText('SPY')).toBeTruthy()
+    expect(
+      vi
+        .mocked(fetchAPI)
+        .mock.calls.some((call) =>
+          String(call[0]).includes(
+            'symbols=SCHD%2CSP500%2CDGRO%2CQQQ%2CVYM%2CSMH%2CSPY',
+          ),
         ),
     ).toBe(true)
   })

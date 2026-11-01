@@ -87,6 +87,12 @@ GROUPS: tuple[GroupDef, ...] = (
         accent="#0ea5a4",
     ),
     GroupDef(
+        id="usCompare",
+        label="美股收益对比",
+        category="broad",
+        accent="#0284c7",
+    ),
+    GroupDef(
         id="coalPrice",
         label="煤炭价格",
         category="commodity",
