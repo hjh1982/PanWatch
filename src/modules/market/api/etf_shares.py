@@ -15,6 +15,7 @@ from src.modules.market import (
     coal_price_service,
     etf_share_service,
     global_coal_service,
+    gold_reserves_service,
     margin_service,
     three_gorges_service,
     us_compare_service,
@@ -74,6 +75,10 @@ def _load_curve(
         )
     if group == us_m2_gold_service.US_M2_GOLD_GROUP_ID:
         return us_m2_gold_service.get_curve_payload(
+            group, days, force=force
+        )
+    if group == gold_reserves_service.GOLD_RESERVES_GROUP_ID:
+        return gold_reserves_service.get_curve_payload(
             group, days, force=force
         )
     if group == us_compare_service.US_COMPARE_GROUP_ID:

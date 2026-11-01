@@ -115,8 +115,16 @@ const catalog = {
       id: 'goldReserves',
       label: '黄金储备',
       category: 'commodity',
-      available: false,
+      available: true,
       accent: '#eab308',
+      funds: [],
+    },
+    {
+      id: 'scfi',
+      label: '集运运价 SCFI',
+      category: 'commodity',
+      available: false,
+      accent: '#14b8a6',
       funds: [],
     },
   ],
@@ -518,6 +526,59 @@ const usM2GoldCurve = {
   ],
 }
 
+const goldReservesCurve = {
+  group: 'goldReserves',
+  group_label: '黄金储备',
+  scope: '中国官方黄金储备月末值（吨）',
+  unit: '吨',
+  as_of: '2026-09',
+  dates: [
+    '2025-09',
+    '2025-10',
+    '2025-11',
+    '2025-12',
+    '2026-01',
+    '2026-02',
+    '2026-03',
+    '2026-04',
+    '2026-05',
+    '2026-06',
+    '2026-07',
+    '2026-08',
+    '2026-09',
+  ],
+  metrics: [
+    {
+      id: 'holdings',
+      label: '黄金储备',
+      unit: '吨',
+      axis: 'left',
+      latest: 2409.59,
+      latest_date: '2026-09',
+      prior: 2386.57,
+      delta: 23.02,
+      delta_pct: 0.9646,
+    },
+  ],
+  series: {
+    holdings: [
+      2303.52, 2304.46, 2305.39, 2306.32, 2307.57, 2308.5, 2313.48,
+      2321.56, 2331.52, 2346.45, 2366.35, 2386.57, 2409.59,
+    ],
+  },
+  coverage: { trading_days: 13, target: 13, complete: true },
+  sources: [
+    {
+      id: 'safe',
+      name: '国家外汇管理局 · 官方储备资产',
+      url: 'https://www.safe.gov.cn/safe/whcb/index.html',
+      cadence: '月度',
+      start: '2018-01',
+      latest: '2026-09',
+    },
+  ],
+}
+
 const usComparePayload = {
   group: 'usCompare',
   group_label: '美股收益对比',
@@ -664,6 +725,9 @@ beforeEach(() => {
     }
     if (path.includes('/curve?group=usM2Gold')) {
       return Promise.resolve(usM2GoldCurve)
+    }
+    if (path.includes('/curve?group=goldReserves')) {
+      return Promise.resolve(goldReservesCurve)
     }
     if (path.includes('/us-compare')) {
       const query = new URLSearchParams(String(path).split('?')[1] ?? '')
@@ -1176,6 +1240,39 @@ describe('ETF share tracker page', () => {
     ).toBe(true)
   })
 
+  it('renders the gold reserves dashboard', async () => {
+    const user = userEvent.setup()
+    render(<EtfSharesPage />)
+    await screen.findAllByText('沪深300ETF华泰柏瑞')
+
+    await user.click(screen.getAllByRole('button', { name: '黄金储备' })[0])
+
+    expect(
+      await screen.findByRole('heading', { name: '黄金储备' }),
+    ).toBeTruthy()
+    expect(screen.getByText('外汇管理局 · 月度')).toBeTruthy()
+    expect(screen.getAllByText('2409.59').length).toBeGreaterThan(0)
+    expect(screen.getByText('+23.02')).toBeTruthy()
+    expect(screen.getByText('+0.96%')).toBeTruthy()
+    expect(screen.getByText('+4.60%')).toBeTruthy()
+    expect(screen.getByText(/2025-10 起连续增加/)).toBeTruthy()
+    expect(screen.getByRole('img', { name: '黄金储备（吨）' })).toBeTruthy()
+    expect(screen.getByRole('img', { name: '月度增减（吨）' })).toBeTruthy()
+    expect(
+      screen.getByText(/国家外汇管理局 · 官方储备资产/),
+    ).toBeTruthy()
+    expect(screen.getByText(/（共 13 个月）/)).toBeTruthy()
+    expect(screen.getByText(/最新 2026-09/)).toBeTruthy()
+    expect(screen.queryByRole('combobox', { name: '近 90 个交易日' })).toBeNull()
+    expect(
+      vi
+        .mocked(fetchAPI)
+        .mock.calls.some((call) =>
+          String(call[0]).endsWith('group=goldReserves&days=90'),
+        ),
+    ).toBe(true)
+  })
+
   it('renders the U.S. returns comparison dashboard', async () => {
     const user = userEvent.setup()
     render(<EtfSharesPage />)
@@ -1235,14 +1332,14 @@ describe('ETF share tracker page', () => {
     render(<EtfSharesPage />)
     await screen.findAllByText('沪深300ETF华泰柏瑞')
 
-    const entries = screen.getAllByRole('button', { name: '黄金储备' })
+    const entries = screen.getAllByRole('button', { name: '集运运价 SCFI' })
     await user.click(entries[0])
 
     expect(await screen.findByText(/该分组的数据源尚未接入/)).toBeTruthy()
     expect(screen.getAllByText('待接入').length).toBeGreaterThan(0)
     expect(screen.queryByRole('button', { name: /刷新数据/ })).toBeNull()
     expect(
-      vi.mocked(fetchAPI).mock.calls.some((call) => String(call[0]).includes('group=goldReserves')),
+      vi.mocked(fetchAPI).mock.calls.some((call) => String(call[0]).includes('group=scfi')),
     ).toBe(false)
   })
 

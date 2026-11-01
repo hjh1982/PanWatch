@@ -863,6 +863,43 @@ export const configuration = {
       caveat:
         'Scope: M2 is the Fed H.6 seasonally adjusted monthly series (via DBnomics), originally in billions of USD and converted to trillions here; gold is the Gold column of the World Bank Commodity Markets Pink Sheet, the London market monthly average in USD per troy ounce. Both series are aligned by calendar month with no gap filling; official monthly data usually lag by 1–2 months.',
     },
+    goldReserves: {
+      title: 'Gold reserves',
+      badge: 'SAFE · Monthly',
+      subtitle:
+        "China's official gold reserves at month-end, with monthly changes (since 2018)",
+      loading: 'Loading gold reserve data…',
+      noData:
+        'The data source returned no gold reserve data. Refresh and try again.',
+      updatedCount: ' ({{count}} months)',
+      units: { holdings: 't', change: 't', months: 'months' },
+      metrics: { holdings: 'Gold reserves' },
+      stats: {
+        latest: 'Latest reserves',
+        latestSub: 'End of {{date}}',
+        mom: 'MoM change',
+        yoy: 'YoY change',
+        streak: 'Monthly purchases',
+        streakSub: 'Rising since {{date}}',
+        streakNone: 'No increase in the latest month',
+      },
+      charts: {
+        monthly: 'Monthly',
+        holdingsTitle: 'Gold reserves (tonnes)',
+        holdingsHint:
+          'Aligned by month-end; hover for the holdings of that month',
+        changeTitle: 'Monthly change (tonnes)',
+        changeHint: 'Change from the prior month; positive means purchases',
+        yUnit: 't',
+        empty: 'No gold reserve data',
+      },
+      sourcesTitle: 'Sources',
+      since: 'From {{date}}',
+      latest: 'Latest {{date}}',
+      noSourceData: 'No data',
+      caveat:
+        'Scope: the quantity column under "4. 黄金 Gold" in SAFE\'s monthly Official Reserve Assets tables, originally in 10k troy ounces and converted here at 1 10k oz = 0.311034768 tonnes; values are month-end with no gap filling. Yearly pages before 2018 only offer Excel/PDF attachments and are not included. The latest month is usually published in the first ten days of the following month.',
+    },
     usCompare: {
       title: 'U.S. returns comparison',
       badge: 'Price return · excludes dividends',

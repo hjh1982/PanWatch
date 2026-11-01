@@ -145,7 +145,6 @@ GROUPS: tuple[GroupDef, ...] = (
         label="黄金储备",
         category="commodity",
         accent="#eab308",
-        available=False,
     ),
     GroupDef(
         id="scfi",
