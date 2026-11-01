@@ -88,6 +88,14 @@ const catalog = {
       funds: [],
     },
     {
+      id: 'autoSales',
+      label: '中国乘用车产销',
+      category: 'industry',
+      available: true,
+      accent: '#0ea5e9',
+      funds: [],
+    },
+    {
       id: 'goldReserves',
       label: '黄金储备',
       category: 'commodity',
@@ -369,6 +377,76 @@ const globalCoalCurve = {
   coverage: { trading_days: 3, target: 3, complete: true },
 }
 
+const autoSalesCurve = {
+  group: 'autoSales',
+  group_label: '中国乘用车产销',
+  scope: '乘联会狭义/广义乘用车月度产量、批发、零售与出口（万辆）',
+  as_of: '2026-09',
+  dates: ['2025-01', '2025-09', '2026-01', '2026-08', '2026-09'],
+  metrics: [
+    {
+      id: 'production',
+      label: '产量',
+      unit: '万辆',
+      axis: 'left',
+      latest: 259.0388,
+      latest_date: '2026-09',
+      prior: 284.6384,
+      delta: -25.5996,
+      delta_pct: -8.9937,
+    },
+    {
+      id: 'wholesale',
+      label: '批发销量',
+      unit: '万辆',
+      axis: 'left',
+      latest: 254.9411,
+      latest_date: '2026-09',
+      prior: 279.6051,
+      delta: -24.664,
+      delta_pct: -8.821,
+    },
+    {
+      id: 'retail',
+      label: '零售销量',
+      unit: '万辆',
+      axis: 'left',
+      latest: 161.7989,
+      latest_date: '2026-09',
+      prior: 224.3658,
+      delta: -62.5669,
+      delta_pct: -27.8861,
+    },
+    {
+      id: 'export',
+      label: '出口',
+      unit: '万辆',
+      axis: 'left',
+      latest: 91.8881,
+      latest_date: '2026-09',
+      prior: 52.8082,
+      delta: 39.0799,
+      delta_pct: 74.0035,
+    },
+  ],
+  series: {
+    narrow_production: [200.364, 284.6384, 200.364, 234.8322, 259.0388],
+    narrow_wholesale: [197.3017, 279.6051, 197.3017, 235.7542, 254.9411],
+    narrow_retail: [153.9064, 224.3658, 153.9064, 154.1478, 161.7989],
+    narrow_export: [58.069, 52.8082, 58.069, 88.8509, 91.8881],
+    wide_production: [201.8092, 288.0568, 201.8092, 236.1357, 260.61],
+    wide_wholesale: [198.9483, 282.8011, 198.9483, 237.5427, 256.6616],
+    wide_retail: [155.2718, 226.8751, 155.2718, 155.4402, 163.1079],
+    wide_export: [58.4274, 53.3046, 58.4274, 89.5312, 92.4888],
+  },
+  coverage: { trading_days: 5, target: 5, complete: true },
+  source: {
+    name: '乘联会（CPCA）',
+    url: 'http://data.cpcadata.com/TotalMarket',
+    cadence: '月度',
+  },
+}
+
 const marginCurve = {
   group: 'margin',
   group_label: '融资融券',
@@ -450,6 +528,9 @@ beforeEach(() => {
     }
     if (path.includes('/curve?group=globalCoal')) {
       return Promise.resolve(globalCoalCurve)
+    }
+    if (path.includes('/curve?group=autoSales')) {
+      return Promise.resolve(autoSalesCurve)
     }
     if (path.includes('/curve?group=aluminum')) return Promise.resolve(aluminumCurve)
     if (path.includes('/curve?group=coalPrice')) return Promise.resolve(coalCurve)
@@ -865,6 +946,57 @@ describe('ETF share tracker page', () => {
         .mocked(fetchAPI)
         .mock.calls.some((call) =>
           String(call[0]).endsWith('group=globalCoal&days=90'),
+        ),
+    ).toBe(true)
+  })
+
+  it('renders the passenger car production and sales dashboard', async () => {
+    const user = userEvent.setup()
+    render(<EtfSharesPage />)
+    await screen.findAllByText('沪深300ETF华泰柏瑞')
+
+    await user.click(screen.getAllByRole('button', { name: '中国乘用车产销' })[0])
+
+    expect(
+      await screen.findByRole('heading', { name: '中国乘用车产销' }),
+    ).toBeTruthy()
+    expect(screen.getByText('乘联会 · 月度')).toBeTruthy()
+    expect(screen.getAllByText('259.0').length).toBeGreaterThan(0)
+    expect(screen.getByText('去年同月 284.6')).toBeTruthy()
+    expect(screen.getByText('同比 -8.99%')).toBeTruthy()
+    expect(
+      screen.getByRole('heading', { name: '产量：今年 vs 去年' }),
+    ).toBeTruthy()
+    expect(
+      screen.getByRole('heading', { name: '批发销量：今年 vs 去年' }),
+    ).toBeTruthy()
+    expect(screen.getByRole('img', { name: '产量：今年 vs 去年' })).toBeTruthy()
+    expect(
+      screen.getByRole('img', { name: '批发销量：今年 vs 去年' }),
+    ).toBeTruthy()
+    expect(screen.getByText('产量 2026')).toBeTruthy()
+    expect(screen.getByText('产量 2025')).toBeTruthy()
+    expect(screen.getAllByText('产量（万辆）').length).toBeGreaterThan(0)
+    expect(screen.getByText('月度明细 · 狭义乘用车')).toBeTruthy()
+    expect(
+      screen.getByRole('link', { name: '乘联会（CPCA）' }),
+    ).toBeTruthy()
+    expect(screen.getByText(/数据更新：2026-09/)).toBeTruthy()
+    expect(screen.getByText(/（共 5 个月）/)).toBeTruthy()
+    expect(
+      screen.queryByRole('combobox', { name: '近 90 个交易日' }),
+    ).toBeNull()
+
+    await user.click(screen.getByRole('button', { name: '广义乘用车' }))
+    expect(screen.getAllByText('260.6').length).toBeGreaterThan(0)
+    expect(screen.getByText('去年同月 288.1')).toBeTruthy()
+    expect(screen.getByText('月度明细 · 广义乘用车')).toBeTruthy()
+
+    expect(
+      vi
+        .mocked(fetchAPI)
+        .mock.calls.some((call) =>
+          String(call[0]).endsWith('group=autoSales&days=90'),
         ),
     ).toBe(true)
   })

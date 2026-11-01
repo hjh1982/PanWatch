@@ -40,7 +40,7 @@ interface FundMeta {
 interface GroupMeta {
   id: string
   label: string
-  category: 'broad' | 'commodity'
+  category: 'broad' | 'commodity' | 'industry'
   available: boolean
   accent: string
   funds: FundMeta[]
@@ -83,6 +83,7 @@ interface MarginMetric {
   axis?: 'left' | 'right'
   latest: number | null
   latest_date: string | null
+  prior?: number | null
   delta: number | null
   delta_pct: number | null
 }
@@ -259,6 +260,18 @@ const GLOBAL_COAL_METRIC_KEYS = {
   rotterdam: 'etfShares.globalCoal.metrics.rotterdam',
   coking_coal: 'etfShares.globalCoal.metrics.coking_coal',
 } as const
+const AUTO_SALES_METRIC_COLORS: Record<string, string> = {
+  production: '#0ea5e9',
+  wholesale: '#f97316',
+  retail: '#8b5cf6',
+  export: '#10b981',
+}
+const AUTO_SALES_METRIC_KEYS = {
+  production: 'etfShares.autoSales.metrics.production',
+  wholesale: 'etfShares.autoSales.metrics.wholesale',
+  retail: 'etfShares.autoSales.metrics.retail',
+  export: 'etfShares.autoSales.metrics.export',
+} as const
 const YEAR_COLORS = ['#94a3b8', '#8b5cf6', '#3b82f6', '#f59e0b', '#059669']
 const GROUP_LABEL_KEYS = {
   hs300: 'etfShares.groups.hs300',
@@ -268,6 +281,7 @@ const GROUP_LABEL_KEYS = {
   coalMonthly: 'etfShares.groups.coalMonthly',
   coalPowerProfit: 'etfShares.groups.coalPowerProfit',
   globalCoal: 'etfShares.groups.globalCoal',
+  autoSales: 'etfShares.groups.autoSales',
   aluminum: 'etfShares.groups.aluminum',
   aluminumInventory: 'etfShares.groups.aluminumInventory',
   goldReserves: 'etfShares.groups.goldReserves',
@@ -3700,6 +3714,335 @@ function CoalPowerProfitDashboard({ data }: { data: MetricsPayload }) {
   )
 }
 
+function AutoSalesDashboard({ data }: { data: MetricsPayload }) {
+  const { t } = useTranslation('configuration')
+  const [scope, setScope] = useState<'narrow' | 'wide'>('narrow')
+  const volumeUnit = t('etfShares.autoSales.units.volume')
+  const fields = ['production', 'wholesale', 'retail', 'export'] as const
+  const monthAxis = Array.from({ length: 12 }, (_, index) =>
+    String(index + 1).padStart(2, '0'),
+  )
+  const latestYear = data.dates.length
+    ? data.dates[data.dates.length - 1].slice(0, 4)
+    : ''
+  const priorYear = latestYear ? String(Number(latestYear) - 1) : ''
+  const currentMonths = data.dates.filter((date) =>
+    date.startsWith(`${latestYear}-`),
+  )
+  const latestMonth = currentMonths.length
+    ? currentMonths[currentMonths.length - 1]
+    : null
+  const seriesOf = (field: (typeof fields)[number]) =>
+    data.series[`${scope}_${field}`] ?? []
+  const valuesAt = (field: (typeof fields)[number], month: string | null) => {
+    if (!month) return null
+    const index = data.dates.indexOf(month)
+    return index >= 0 ? seriesOf(field)[index] ?? null : null
+  }
+  const byMonth = (
+    field: (typeof fields)[number],
+    year: string,
+  ): Array<number | null> => {
+    const map = new Map<number, number>()
+    const values = seriesOf(field)
+    data.dates.forEach((date, index) => {
+      if (!date.startsWith(`${year}-`)) return
+      const value = values[index]
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        map.set(Number(date.slice(5, 7)), value)
+      }
+    })
+    return monthAxis.map((month) => map.get(Number(month)) ?? null)
+  }
+  const yoyOf = (field: (typeof fields)[number], month: string) => {
+    const latest = valuesAt(field, month)
+    const prior = valuesAt(field, `${priorYear}-${month.slice(5)}`)
+    return latest !== null && prior !== null && prior !== 0
+      ? ((latest - prior) / prior) * 100
+      : null
+  }
+  const tableRows = currentMonths
+    .slice()
+    .reverse()
+    .map((month) => ({
+      month,
+      production: valuesAt('production', month),
+      wholesale: valuesAt('wholesale', month),
+      retail: valuesAt('retail', month),
+      export: valuesAt('export', month),
+      productionYoy: yoyOf('production', month),
+      wholesaleYoy: yoyOf('wholesale', month),
+    }))
+  const overlaySeries = (
+    field: 'production' | 'wholesale',
+  ): ChartSeries[] => {
+    const color = AUTO_SALES_METRIC_COLORS[field]
+    const label = t(AUTO_SALES_METRIC_KEYS[field])
+    return [
+      {
+        code: `${field}_${priorYear}`,
+        name: `${label} ${priorYear}`,
+        color,
+        dashed: true,
+        values: byMonth(field, priorYear),
+      },
+      {
+        code: `${field}_${latestYear}`,
+        name: `${label} ${latestYear}`,
+        color,
+        values: byMonth(field, latestYear),
+      },
+    ]
+  }
+  const chartHeader = (
+    title: string,
+    accent: string,
+    series: ChartSeries[],
+  ) => (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border/60 px-4 py-2.5">
+      <span className="h-4 w-1 rounded" style={{ backgroundColor: accent }} />
+      <h2 className="text-[13px] font-semibold">{title}</h2>
+      <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+        {t('etfShares.autoSales.charts.monthly')}
+      </span>
+      <div className="ml-auto flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+        {series.map((item) => (
+          <span key={item.code} className="flex items-center gap-1.5">
+            <span
+              className="inline-block w-4 shrink-0"
+              style={{
+                borderTop: `2px ${item.dashed ? 'dashed' : 'solid'} ${item.color}`,
+              }}
+            />
+            {item.name}
+          </span>
+        ))}
+      </div>
+      <p className="w-full text-[11px] text-muted-foreground/80">
+        {t('etfShares.autoSales.charts.hint', {
+          latest: latestYear,
+          prior: priorYear,
+        })}
+      </p>
+    </div>
+  )
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="inline-flex items-center rounded-lg border border-border/60 p-0.5 text-[11px]">
+          {(['narrow', 'wide'] as const).map((item) => (
+            <button
+              key={item}
+              type="button"
+              onClick={() => setScope(item)}
+              className={`rounded-md px-2.5 py-1 transition-colors ${
+                scope === item
+                  ? 'bg-accent/70 font-medium text-foreground'
+                  : 'text-muted-foreground'
+              }`}
+            >
+              {t(`etfShares.autoSales.scopes.${item}`)}
+            </button>
+          ))}
+        </div>
+        <span className="text-[11px] text-muted-foreground/80">
+          {t('etfShares.autoSales.scopeHint')}
+        </span>
+        {latestMonth && (
+          <span className="ml-auto font-mono text-[11px] text-muted-foreground">
+            {latestMonth}
+          </span>
+        )}
+      </div>
+
+      <section className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+        {fields.map((field) => {
+          const latest = valuesAt(field, latestMonth)
+          const prior = valuesAt(
+            field,
+            latestMonth ? `${priorYear}-${latestMonth.slice(5)}` : null,
+          )
+          const yoy =
+            latest !== null && prior !== null && prior !== 0
+              ? ((latest - prior) / prior) * 100
+              : null
+          const color = AUTO_SALES_METRIC_COLORS[field]
+          return (
+            <div
+              key={field}
+              className="relative overflow-hidden rounded-xl border border-border/60 bg-card/60 p-3"
+            >
+              <span
+                className="absolute inset-y-0 left-0 w-0.5"
+                style={{ backgroundColor: color }}
+              />
+              <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                <span
+                  className="h-2.5 w-1 rounded-sm"
+                  style={{ backgroundColor: color }}
+                />
+                <span className="truncate">
+                  {t(AUTO_SALES_METRIC_KEYS[field])}
+                </span>
+              </div>
+              <div className="mt-1.5 flex items-baseline gap-1">
+                <span className="font-mono text-[19px] font-bold leading-none text-foreground md:text-[21px]">
+                  {formatValue(latest, 1)}
+                </span>
+                <span className="shrink-0 text-[10px] text-muted-foreground">
+                  {volumeUnit}
+                </span>
+              </div>
+              <div className="mt-1.5 flex items-center justify-between gap-1 text-[10px] text-muted-foreground">
+                <span className="truncate">
+                  {t('etfShares.autoSales.priorLabel', {
+                    value: formatValue(prior, 1),
+                  })}
+                </span>
+                <span className={`font-mono ${marketSignTextClass(yoy)}`}>
+                  {t('etfShares.autoSales.yoyLabel')} {formatPercent(yoy)}
+                </span>
+              </div>
+            </div>
+          )
+        })}
+      </section>
+
+      {(['production', 'wholesale'] as const).map((field) => {
+        const series = overlaySeries(field)
+        const title = t(
+          field === 'production'
+            ? 'etfShares.autoSales.charts.productionTitle'
+            : 'etfShares.autoSales.charts.wholesaleTitle',
+        )
+        return (
+          <section key={field} className="card overflow-hidden">
+            {chartHeader(title, AUTO_SALES_METRIC_COLORS[field], series)}
+            <div className="px-2 pb-2 pt-3 md:px-4">
+              <ShareChart
+                dates={monthAxis}
+                series={series}
+                emptyText={t('etfShares.autoSales.charts.empty')}
+                unitLabel={t('etfShares.autoSales.charts.yUnit')}
+                valueUnit={volumeUnit}
+                valueDigits={1}
+                ariaLabel={title}
+                labelByName
+                zeroBased
+              />
+            </div>
+          </section>
+        )
+      })}
+
+      <section className="card overflow-hidden">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border/60 px-4 py-2.5">
+          <h2 className="text-[13px] font-semibold">
+            {t('etfShares.autoSales.data.title', {
+              scope: t(`etfShares.autoSales.scopes.${scope}`),
+            })}
+          </h2>
+          <Badge variant="secondary" className="text-[10px]">
+            {t('etfShares.autoSales.data.count', { count: tableRows.length })}
+          </Badge>
+          <span className="ml-auto text-[11px] text-muted-foreground/80">
+            {t('etfShares.autoSales.data.hint')}
+          </span>
+        </div>
+        {tableRows.length === 0 ? (
+          <p className="px-4 py-6 text-center text-[12px] text-muted-foreground">
+            {t('etfShares.autoSales.data.empty')}
+          </p>
+        ) : (
+          <div className="max-h-[360px] overflow-auto scrollbar">
+            <table className="w-full min-w-[760px] text-[12px]">
+              <thead className="sticky top-0 z-10 bg-card text-left text-[11px] text-muted-foreground">
+                <tr className="border-b border-border/60">
+                  <th className="px-4 py-2 font-medium">
+                    {t('etfShares.autoSales.data.month')}
+                  </th>
+                  <th className="px-3 py-2 text-right font-medium">
+                    {t('etfShares.autoSales.data.production')}
+                  </th>
+                  <th className="px-3 py-2 text-right font-medium">
+                    {t('etfShares.autoSales.data.wholesale')}
+                  </th>
+                  <th className="px-3 py-2 text-right font-medium">
+                    {t('etfShares.autoSales.data.retail')}
+                  </th>
+                  <th className="px-3 py-2 text-right font-medium">
+                    {t('etfShares.autoSales.data.export')}
+                  </th>
+                  <th className="px-3 py-2 text-right font-medium">
+                    {t('etfShares.autoSales.data.productionYoy')}
+                  </th>
+                  <th className="px-4 py-2 text-right font-medium">
+                    {t('etfShares.autoSales.data.wholesaleYoy')}
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {tableRows.map((row) => (
+                  <tr
+                    key={row.month}
+                    className="border-b border-border/40 last:border-0 hover:bg-accent/20"
+                  >
+                    <td className="whitespace-nowrap px-4 py-1.5 font-mono">
+                      {row.month}
+                    </td>
+                    <td className="px-3 py-1.5 text-right font-mono">
+                      {formatValue(row.production, 1)}
+                    </td>
+                    <td className="px-3 py-1.5 text-right font-mono">
+                      {formatValue(row.wholesale, 1)}
+                    </td>
+                    <td className="px-3 py-1.5 text-right font-mono">
+                      {formatValue(row.retail, 1)}
+                    </td>
+                    <td className="px-3 py-1.5 text-right font-mono">
+                      {formatValue(row.export, 1)}
+                    </td>
+                    <td
+                      className={`px-3 py-1.5 text-right font-mono ${marketSignTextClass(row.productionYoy)}`}
+                    >
+                      {formatPercent(row.productionYoy)}
+                    </td>
+                    <td
+                      className={`px-4 py-1.5 text-right font-mono ${marketSignTextClass(row.wholesaleYoy)}`}
+                    >
+                      {formatPercent(row.wholesaleYoy)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      {data.source && (
+        <p className="px-1 text-[11px] text-muted-foreground/80">
+          {t('etfShares.autoSales.sourceLabel')}：
+          <a
+            className="underline underline-offset-2 hover:text-foreground"
+            href={data.source.url}
+            target="_blank"
+            rel="noreferrer"
+          >
+            {data.source.name}
+          </a>
+          {' · '}
+          {data.source.cadence}
+        </p>
+      )}
+      <p className="px-1 text-[11px] text-muted-foreground/80">
+        {t('etfShares.autoSales.caveat')}
+      </p>
+    </div>
+  )
+}
+
 function FundCard({
   fund,
   color,
@@ -3844,7 +4187,9 @@ function EtfSharesPage() {
   const categoryLabel = (category: GroupMeta['category']) =>
     category === 'broad'
       ? t('etfShares.categories.broad')
-      : t('etfShares.categories.commodity')
+      : category === 'industry'
+        ? t('etfShares.categories.industry')
+        : t('etfShares.categories.commodity')
 
   useEffect(() => {
     let cancelled = false
@@ -3939,6 +4284,7 @@ function EtfSharesPage() {
   const isInventoryGroup = activeGroup?.id === 'aluminumInventory'
   const isThreeGorgesGroup = activeGroup?.id === 'threeGorges'
   const isGlobalCoalGroup = activeGroup?.id === 'globalCoal'
+  const isAutoSalesGroup = activeGroup?.id === 'autoSales'
   const pageTitle = isCoalGroup
     ? t('etfShares.coal.title')
     : isCoalMonthlyGroup
@@ -3947,15 +4293,17 @@ function EtfSharesPage() {
         ? t('etfShares.coalPowerProfit.title')
         : isGlobalCoalGroup
           ? t('etfShares.globalCoal.title')
-          : isInventoryGroup
-            ? t('etfShares.aluminumInventory.title')
-            : isAluminumGroup
-              ? t('etfShares.aluminum.title')
-              : isThreeGorgesGroup
-                ? t('etfShares.threeGorges.title')
-                : isMarginGroup
-                  ? t('etfShares.margin.title')
-                  : t('etfShares.title')
+          : isAutoSalesGroup
+            ? t('etfShares.autoSales.title')
+            : isInventoryGroup
+              ? t('etfShares.aluminumInventory.title')
+              : isAluminumGroup
+                ? t('etfShares.aluminum.title')
+                : isThreeGorgesGroup
+                  ? t('etfShares.threeGorges.title')
+                  : isMarginGroup
+                    ? t('etfShares.margin.title')
+                    : t('etfShares.title')
   const pageBadge = isCoalGroup
     ? t('etfShares.coal.badge')
     : isCoalMonthlyGroup
@@ -3964,15 +4312,17 @@ function EtfSharesPage() {
         ? t('etfShares.coalPowerProfit.badge')
         : isGlobalCoalGroup
           ? t('etfShares.globalCoal.badge')
-          : isInventoryGroup
-            ? t('etfShares.aluminumInventory.badge')
-            : isAluminumGroup
-              ? t('etfShares.aluminum.badge')
-              : isThreeGorgesGroup
-                ? t('etfShares.threeGorges.badge')
-                : isMarginGroup
-                  ? t('etfShares.margin.badge')
-                  : t('etfShares.badge')
+          : isAutoSalesGroup
+            ? t('etfShares.autoSales.badge')
+            : isInventoryGroup
+              ? t('etfShares.aluminumInventory.badge')
+              : isAluminumGroup
+                ? t('etfShares.aluminum.badge')
+                : isThreeGorgesGroup
+                  ? t('etfShares.threeGorges.badge')
+                  : isMarginGroup
+                    ? t('etfShares.margin.badge')
+                    : t('etfShares.badge')
   const pageSubtitle = isCoalGroup
     ? t('etfShares.coal.subtitle')
     : isCoalMonthlyGroup
@@ -3981,15 +4331,17 @@ function EtfSharesPage() {
         ? t('etfShares.coalPowerProfit.subtitle')
         : isGlobalCoalGroup
           ? t('etfShares.globalCoal.subtitle')
-          : isInventoryGroup
-            ? t('etfShares.aluminumInventory.subtitle')
-            : isAluminumGroup
-              ? t('etfShares.aluminum.subtitle')
-              : isThreeGorgesGroup
-                ? t('etfShares.threeGorges.subtitle')
-                : isMarginGroup
-                  ? t('etfShares.margin.subtitle')
-                  : t('etfShares.subtitle')
+          : isAutoSalesGroup
+            ? t('etfShares.autoSales.subtitle')
+            : isInventoryGroup
+              ? t('etfShares.aluminumInventory.subtitle')
+              : isAluminumGroup
+                ? t('etfShares.aluminum.subtitle')
+                : isThreeGorgesGroup
+                  ? t('etfShares.threeGorges.subtitle')
+                  : isMarginGroup
+                    ? t('etfShares.margin.subtitle')
+                    : t('etfShares.subtitle')
   const cardUnit = t('etfShares.unit')
   const chartTitle = t('etfShares.chart.title')
   const chartEmpty = t('etfShares.chart.empty')
@@ -4002,15 +4354,17 @@ function EtfSharesPage() {
         ? t('etfShares.coalPowerProfit.loading')
         : isGlobalCoalGroup
           ? t('etfShares.globalCoal.loading')
-          : isInventoryGroup
-            ? t('etfShares.aluminumInventory.loading')
-            : isAluminumGroup
-              ? t('etfShares.aluminum.loading')
-              : isThreeGorgesGroup
-                ? t('etfShares.threeGorges.loading')
-                : isMarginGroup
-                  ? t('etfShares.margin.loading')
-                  : t('etfShares.loading')
+          : isAutoSalesGroup
+            ? t('etfShares.autoSales.loading')
+            : isInventoryGroup
+              ? t('etfShares.aluminumInventory.loading')
+              : isAluminumGroup
+                ? t('etfShares.aluminum.loading')
+                : isThreeGorgesGroup
+                  ? t('etfShares.threeGorges.loading')
+                  : isMarginGroup
+                    ? t('etfShares.margin.loading')
+                    : t('etfShares.loading')
   const noDataText = isCoalGroup
     ? t('etfShares.coal.noData')
     : isCoalMonthlyGroup
@@ -4019,15 +4373,17 @@ function EtfSharesPage() {
         ? t('etfShares.coalPowerProfit.noData')
         : isGlobalCoalGroup
           ? t('etfShares.globalCoal.noData')
-          : isInventoryGroup
-            ? t('etfShares.aluminumInventory.noData')
-            : isAluminumGroup
-              ? t('etfShares.aluminum.noData')
-              : isThreeGorgesGroup
-                ? t('etfShares.threeGorges.noData')
-                : isMarginGroup
-                  ? t('etfShares.margin.noData')
-                  : t('etfShares.errors.noData')
+          : isAutoSalesGroup
+            ? t('etfShares.autoSales.noData')
+            : isInventoryGroup
+              ? t('etfShares.aluminumInventory.noData')
+              : isAluminumGroup
+                ? t('etfShares.aluminum.noData')
+                : isThreeGorgesGroup
+                  ? t('etfShares.threeGorges.noData')
+                  : isMarginGroup
+                    ? t('etfShares.margin.noData')
+                    : t('etfShares.errors.noData')
   const metricsCurve = isMetricsPayload(curve) ? curve : null
   const shareCurve = curve && !isMetricsPayload(curve) ? curve : null
   const hasData = metricsCurve
@@ -4042,7 +4398,7 @@ function EtfSharesPage() {
     isThreeGorgesGroup
       ? t('etfShares.threeGorges.rangeDays', { count: value })
       : t('etfShares.rangeDays', { count: value })
-  const categories = (['broad', 'commodity'] as const)
+  const categories = (['broad', 'commodity', 'industry'] as const)
     .map((category) => ({
       id: category,
       items: groups.filter((group) => group.category === category),
@@ -4128,7 +4484,11 @@ function EtfSharesPage() {
               ? t('etfShares.globalCoal.updatedCount', {
                   count: curve.coverage.trading_days,
                 })
-              : isInventoryGroup
+              : isAutoSalesGroup
+                ? t('etfShares.autoSales.updatedCount', {
+                    count: curve.coverage.trading_days,
+                  })
+                : isInventoryGroup
                 ? t('etfShares.aluminumInventory.updatedCount', {
                     count: curve.coverage.trading_days,
                   })
@@ -4136,7 +4496,9 @@ function EtfSharesPage() {
                   ? t('etfShares.threeGorges.updatedCount', {
                       count: curve.coverage.trading_days,
                     })
-                  : t('etfShares.updatedCount', { count: curve.coverage.trading_days })
+                  : t('etfShares.updatedCount', {
+                      count: curve.coverage.trading_days,
+                    })
       : ''
 
   return (
@@ -4170,6 +4532,7 @@ function EtfSharesPage() {
               {!isCoalGroup &&
                 !isCoalMonthlyGroup &&
                 !isCoalPowerProfitGroup &&
+                !isAutoSalesGroup &&
                 !isInventoryGroup && (
                 <Select
                   value={String(days)}
@@ -4277,6 +4640,8 @@ function EtfSharesPage() {
             <ThreeGorgesDashboard data={metricsCurve} />
           ) : isGlobalCoalGroup && metricsCurve ? (
             <GlobalCoalDashboard data={metricsCurve} />
+          ) : isAutoSalesGroup && metricsCurve ? (
+            <AutoSalesDashboard data={metricsCurve} />
           ) : !hasData ? (
             <section className="card flex h-[320px] flex-col items-center justify-center gap-2 px-6 text-center">
               <p className="text-[13px] text-muted-foreground">{noDataText}</p>

@@ -550,7 +550,7 @@ export const configuration = {
       loadFailed: 'Could not load ETF share data',
       noData: 'The data source returned no share data. Refresh and try again.',
     },
-    categories: { broad: 'Index ETF', commodity: 'Commodities' },
+    categories: { broad: 'Index ETF', commodity: 'Commodities', industry: 'Industry data' },
     groups: {
       hs300: 'CSI 300 ETF',
       zz500: 'CSI 500 ETF',
@@ -559,6 +559,7 @@ export const configuration = {
       coalMonthly: 'Coal output & profit',
       coalPowerProfit: 'Coal & power profit',
       globalCoal: 'Global coal prices',
+      autoSales: 'China passenger car sales',
       aluminum: 'Aluminum & alumina',
       aluminumInventory: 'Aluminum ingot inventory',
       goldReserves: 'Gold reserves',
@@ -782,6 +783,52 @@ export const configuration = {
       noSourceData: 'unavailable',
       caveat:
         'Scope: ICE Newcastle and Rotterdam thermal coal are quoted in USD/t, while China coking coal is the DCE continuous contract in CNY/t, so two axes are used. The three sources follow different trading calendars and missing days are not filled. The Newcastle continuous contract has a short history on Eastmoney, so earlier dates in the window are blank.',
+    },
+    autoSales: {
+      title: 'China passenger car production & sales',
+      badge: 'CPCA · Monthly',
+      subtitle:
+        'Monthly narrow/wide passenger car output, wholesale, retail and exports, this year vs last year',
+      loading: 'Loading passenger car production and sales…',
+      noData:
+        'The data source returned no passenger car data. Refresh and try again.',
+      updatedCount: ' ({{count}} months)',
+      units: { volume: '10k units' },
+      scopes: { narrow: 'Narrow passenger cars', wide: 'Wide passenger cars' },
+      scopeHint:
+        'Narrow = sedans + MPVs + SUVs; wide additionally includes mini vans.',
+      metrics: {
+        production: 'Production',
+        wholesale: 'Wholesale',
+        retail: 'Retail',
+        export: 'Exports',
+      },
+      priorLabel: 'Last year {{value}}',
+      yoyLabel: 'YoY',
+      charts: {
+        monthly: 'Monthly',
+        productionTitle: 'Production: this year vs last year',
+        wholesaleTitle: 'Wholesale: this year vs last year',
+        hint: 'Aligned by month: solid is {{latest}}, dashed is {{prior}}.',
+        empty: 'No passenger car data',
+        yUnit: '10k units',
+      },
+      data: {
+        title: 'Monthly detail · {{scope}}',
+        count: '{{count}} months',
+        month: 'Month',
+        production: 'Production (10k)',
+        wholesale: 'Wholesale (10k)',
+        retail: 'Retail (10k)',
+        export: 'Exports (10k)',
+        productionYoy: 'Production YoY',
+        wholesaleYoy: 'Wholesale YoY',
+        hint: 'This year only; YoY compares with the same month last year',
+        empty: 'No data',
+      },
+      sourceLabel: 'Source',
+      caveat:
+        'Scope: CPCA monthly passenger car data with four figures in order: production, wholesale, retail and exports, in 10k units. Narrow passenger cars cover sedans, MPVs and SUVs; wide also includes mini vans. Data is released monthly, usually in the first ten days of the following month; unpublished months are left blank.',
     },
     aluminum: {
       title: 'Aluminum & alumina · Spot prices',

@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from src.modules.market import (
     aluminum_inventory_service,
     aluminum_service,
+    auto_sales_service,
     coal_monthly_service,
     coal_price_service,
     etf_share_service,
@@ -63,6 +64,10 @@ def _load_curve(
         )
     if group == global_coal_service.GLOBAL_COAL_GROUP_ID:
         return global_coal_service.get_curve_payload(
+            group, days, force=force
+        )
+    if group == auto_sales_service.AUTO_SALES_GROUP_ID:
+        return auto_sales_service.get_curve_payload(
             group, days, force=force
         )
     return etf_share_service.get_curve_payload(db, group, days, force=force)
