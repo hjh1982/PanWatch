@@ -117,6 +117,12 @@ GROUPS: tuple[GroupDef, ...] = (
         accent="#0ea5e9",
     ),
     GroupDef(
+        id="usM2Gold",
+        label="美国 M2 vs 黄金",
+        category="macro",
+        accent="#b45309",
+    ),
+    GroupDef(
         id="aluminum",
         label="电解铝·氧化铝",
         category="commodity",

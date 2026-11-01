@@ -550,7 +550,12 @@ export const configuration = {
       loadFailed: 'Could not load ETF share data',
       noData: 'The data source returned no share data. Refresh and try again.',
     },
-    categories: { broad: 'Index ETF', commodity: 'Commodities', industry: 'Industry data' },
+    categories: {
+      broad: 'Index ETF',
+      commodity: 'Commodities',
+      industry: 'Industry data',
+      macro: 'Macro indicators',
+    },
     groups: {
       hs300: 'CSI 300 ETF',
       zz500: 'CSI 500 ETF',
@@ -560,6 +565,7 @@ export const configuration = {
       coalPowerProfit: 'Coal & power profit',
       globalCoal: 'Global coal prices',
       autoSales: 'China passenger car sales',
+      usM2Gold: 'U.S. M2 vs gold',
       aluminum: 'Aluminum & alumina',
       aluminumInventory: 'Aluminum ingot inventory',
       goldReserves: 'Gold reserves',
@@ -829,6 +835,32 @@ export const configuration = {
       sourceLabel: 'Source',
       caveat:
         'Scope: CPCA monthly passenger car data with four figures in order: production, wholesale, retail and exports, in 10k units. Narrow passenger cars cover sedans, MPVs and SUVs; wide also includes mini vans. Data is released monthly, usually in the first ten days of the following month; unpublished months are left blank.',
+    },
+    usM2Gold: {
+      title: 'U.S. M2 money supply vs gold price',
+      badge: 'Fed · World Bank',
+      subtitle:
+        'Historical comparison of U.S. M2 money supply and the monthly average gold price (since 1960)',
+      loading: 'Loading U.S. M2 and gold data…',
+      noData: 'The data source returned no M2 or gold data. Refresh and try again.',
+      updatedCount: ' ({{count}} months)',
+      yoyLabel: 'YoY',
+      units: { m2: 'trillion USD', gold: 'USD/oz' },
+      metrics: { m2: 'M2 money supply', gold: 'Gold price' },
+      axes: { left: 'M2 (trillion USD)', right: 'Gold (USD/oz)' },
+      charts: {
+        title: 'U.S. M2 vs gold price',
+        monthly: 'Monthly',
+        coverage: 'Since 1960',
+        hint: 'Left axis: M2 money supply (seasonally adjusted); right axis: monthly average gold price; hover for monthly values',
+        empty: 'No M2 or gold data',
+      },
+      sourcesTitle: 'Sources',
+      since: 'From {{date}}',
+      latest: 'Latest {{date}}',
+      noSourceData: 'No data',
+      caveat:
+        'Scope: M2 is the Fed H.6 seasonally adjusted monthly series (via DBnomics), originally in billions of USD and converted to trillions here; gold is the Gold column of the World Bank Commodity Markets Pink Sheet, the London market monthly average in USD per troy ounce. Both series are aligned by calendar month with no gap filling; official monthly data usually lag by 1–2 months.',
     },
     aluminum: {
       title: 'Aluminum & alumina · Spot prices',

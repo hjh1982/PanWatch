@@ -96,6 +96,14 @@ const catalog = {
       funds: [],
     },
     {
+      id: 'usM2Gold',
+      label: '美国 M2 vs 黄金',
+      category: 'macro',
+      available: true,
+      accent: '#b45309',
+      funds: [],
+    },
+    {
       id: 'goldReserves',
       label: '黄金储备',
       category: 'commodity',
@@ -447,6 +455,61 @@ const autoSalesCurve = {
   },
 }
 
+const usM2GoldCurve = {
+  group: 'usM2Gold',
+  group_label: '美国 M2 vs 黄金',
+  scope: '美国 M2 货币供应（季调）与黄金月度均价（1960 年起）',
+  as_of: '2026-09',
+  dates: ['1960-01', '2025-09', '2025-10', '2026-09', '2026-10'],
+  metrics: [
+    {
+      id: 'm2',
+      label: 'M2 货币供应',
+      unit: '万亿美元',
+      axis: 'left',
+      latest: 23.4139,
+      latest_date: '2026-09',
+      prior: 21.0,
+      delta: 2.4139,
+      delta_pct: 11.4948,
+    },
+    {
+      id: 'gold',
+      label: '黄金价格',
+      unit: '美元/盎司',
+      axis: 'right',
+      latest: 4400,
+      latest_date: '2026-10',
+      prior: 3600,
+      delta: 800,
+      delta_pct: 22.2222,
+    },
+  ],
+  series: {
+    m2: [0.31, 21.0, null, 23.4139, null],
+    gold: [35, 3500, 3600, 4319, 4400],
+  },
+  coverage: { trading_days: 3, target: 5, complete: false },
+  sources: [
+    {
+      id: 'm2',
+      name: '美联储 H.6 · M2（经 DBnomics 镜像）',
+      url: 'https://www.federalreserve.gov/releases/h6/',
+      cadence: '月度',
+      start: '1960-01',
+      latest: '2026-09',
+    },
+    {
+      id: 'gold',
+      name: '世界银行 · 大宗商品月度价格（Pink Sheet）',
+      url: 'https://www.worldbank.org/en/research/commodity-markets',
+      cadence: '月度',
+      start: '1960-01',
+      latest: '2026-10',
+    },
+  ],
+}
+
 const marginCurve = {
   group: 'margin',
   group_label: '融资融券',
@@ -531,6 +594,9 @@ beforeEach(() => {
     }
     if (path.includes('/curve?group=autoSales')) {
       return Promise.resolve(autoSalesCurve)
+    }
+    if (path.includes('/curve?group=usM2Gold')) {
+      return Promise.resolve(usM2GoldCurve)
     }
     if (path.includes('/curve?group=aluminum')) return Promise.resolve(aluminumCurve)
     if (path.includes('/curve?group=coalPrice')) return Promise.resolve(coalCurve)
@@ -997,6 +1063,38 @@ describe('ETF share tracker page', () => {
         .mocked(fetchAPI)
         .mock.calls.some((call) =>
           String(call[0]).endsWith('group=autoSales&days=90'),
+        ),
+    ).toBe(true)
+  })
+
+  it('renders the U.S. M2 vs gold dashboard', async () => {
+    const user = userEvent.setup()
+    render(<EtfSharesPage />)
+    await screen.findAllByText('沪深300ETF华泰柏瑞')
+
+    await user.click(screen.getAllByRole('button', { name: '美国 M2 vs 黄金' })[0])
+
+    expect(
+      await screen.findByRole('heading', { name: '美国 M2 货币供应 vs 黄金价格' }),
+    ).toBeTruthy()
+    expect(screen.getByText('美联储 · 世界银行')).toBeTruthy()
+    expect(screen.getAllByText('23.41').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('4400').length).toBeGreaterThan(0)
+    expect(screen.getByRole('img', { name: '美国 M2 vs 黄金价格' })).toBeTruthy()
+    expect(
+      screen.getByText(/美联储 H\.6 · M2（经 DBnomics 镜像）/),
+    ).toBeTruthy()
+    expect(
+      screen.getByText(/世界银行 · 大宗商品月度价格（Pink Sheet）/),
+    ).toBeTruthy()
+    expect(screen.getByText(/数据更新：2026-09/)).toBeTruthy()
+    expect(screen.getByText(/（共 3 个月）/)).toBeTruthy()
+    expect(screen.queryByRole('combobox', { name: '近 90 个交易日' })).toBeNull()
+    expect(
+      vi
+        .mocked(fetchAPI)
+        .mock.calls.some((call) =>
+          String(call[0]).endsWith('group=usM2Gold&days=90'),
         ),
     ).toBe(true)
   })
