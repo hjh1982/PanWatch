@@ -129,10 +129,18 @@ const catalog = {
     },
     {
       id: 'hydropower',
-      label: '水力发电量',
+      label: '长电来水发电',
+      category: 'commodity',
+      available: true,
+      accent: '#0ea5e9',
+      funds: [],
+    },
+    {
+      id: 'plannedDemo',
+      label: '待接入示例',
       category: 'industry',
       available: false,
-      accent: '#0ea5e9',
+      accent: '#94a3b8',
       funds: [],
     },
   ],
@@ -638,6 +646,72 @@ const scfiCurve = {
   ],
 }
 
+const hydropowerCurve = {
+  group: 'hydropower',
+  group_label: '长电来水发电',
+  scope: '长江电力六座梯级电站季度来水与发电量',
+  unit: '亿千瓦时',
+  as_of: '2026Q3',
+  dates: ['2025Q2', '2025Q3', '2025Q4', '2026Q1', '2026Q2', '2026Q3'],
+  metrics: [
+    {
+      id: 'generation',
+      label: '总发电量',
+      unit: '亿千瓦时',
+      axis: 'left',
+      latest: 923.14,
+      latest_date: '2026Q3',
+      prior: 709.19,
+      delta: 213.95,
+      delta_pct: 30.17,
+    },
+    {
+      id: 'inflow_udongde',
+      label: '乌东德来水',
+      unit: '亿立方米',
+      axis: 'left',
+      latest: 425.4,
+      latest_date: '2026Q3',
+      prior: 177.21,
+      delta: 248.19,
+      delta_pct: 140.05,
+    },
+    {
+      id: 'inflow_three_gorges',
+      label: '三峡来水',
+      unit: '亿立方米',
+      axis: 'left',
+      latest: 1273.17,
+      latest_date: '2026Q3',
+      prior: 1159.22,
+      delta: 113.95,
+      delta_pct: 9.83,
+    },
+  ],
+  series: {
+    generation: [800, 1084.7, 600, 650, 709.19, 923.14],
+    inflow_udongde: [300, 435.25, 200, 180, 177.21, 425.4],
+    inflow_three_gorges: [900, 1633.48, 800, 1100, 1159.22, 1273.17],
+    udongde: [50, 60, 40, 45, 55, 131.521],
+    baihetan: [70, 90, 50, 55, 75, 194.2104],
+    xiluodu: [80, 100, 60, 65, 85, 187.8558],
+    xiangjiaba: [40, 55, 30, 35, 45, 102.8065],
+    three_gorges: [100, 150, 80, 90, 110, 253.1851],
+    gezhouba: [25, 35, 20, 22, 28, 53.5618],
+  },
+  coverage: { trading_days: 6, target: 6, complete: true },
+  sources: [
+    {
+      id: 'eastmoney',
+      name: '东方财富 · 长江电力发电量公告',
+      url: 'https://data.eastmoney.com/notices/stock/600900.html',
+      cadence: '季度',
+      start: '2025Q2',
+      latest: '2026Q3',
+    },
+  ],
+}
+
 const usComparePayload = {
   group: 'usCompare',
   group_label: '美股收益对比',
@@ -790,6 +864,9 @@ beforeEach(() => {
     }
     if (path.includes('/curve?group=scfi')) {
       return Promise.resolve(scfiCurve)
+    }
+    if (path.includes('/curve?group=hydropower')) {
+      return Promise.resolve(hydropowerCurve)
     }
     if (path.includes('/us-compare')) {
       const query = new URLSearchParams(String(path).split('?')[1] ?? '')
@@ -1394,7 +1471,7 @@ describe('ETF share tracker page', () => {
     render(<EtfSharesPage />)
     await screen.findAllByText('沪深300ETF华泰柏瑞')
 
-    const entries = screen.getAllByRole('button', { name: '长电来水发电' })
+    const entries = screen.getAllByRole('button', { name: '待接入示例' })
     await user.click(entries[0])
 
     expect(await screen.findByText(/该分组的数据源尚未接入/)).toBeTruthy()
@@ -1403,7 +1480,7 @@ describe('ETF share tracker page', () => {
     expect(
       vi
         .mocked(fetchAPI)
-        .mock.calls.some((call) => String(call[0]).includes('group=hydropower')),
+        .mock.calls.some((call) => String(call[0]).includes('group=plannedDemo')),
     ).toBe(false)
   })
 
@@ -1440,6 +1517,59 @@ describe('ETF share tracker page', () => {
         .mocked(fetchAPI)
         .mock.calls.some((call) =>
           String(call[0]).endsWith('group=scfi&days=90'),
+        ),
+    ).toBe(true)
+  })
+
+  it('renders the Yangtze hydropower dashboard', async () => {
+    const user = userEvent.setup()
+    render(<EtfSharesPage />)
+    await screen.findAllByText('沪深300ETF华泰柏瑞')
+
+    await user.click(screen.getAllByRole('button', { name: '长电来水发电' })[0])
+
+    expect(
+      await screen.findByRole('heading', { name: '长电来水发电' }),
+    ).toBeTruthy()
+    expect(screen.getByText('长江电力 · 季度')).toBeTruthy()
+    expect(screen.getAllByText('923.14').length).toBeGreaterThan(0)
+    expect(screen.getByText('-161.56')).toBeTruthy()
+    expect(screen.getByText('-14.89%')).toBeTruthy()
+    expect(screen.getByText('较 2025Q3')).toBeTruthy()
+    expect(screen.getAllByText('425.40').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('1273.17').length).toBeGreaterThan(0)
+    expect(screen.getByText('同比 -2.26%')).toBeTruthy()
+    expect(screen.getByText('同比 -22.06%')).toBeTruthy()
+    expect(
+      screen.getByRole('img', { name: '六站季度发电量（亿千瓦时）' }),
+    ).toBeTruthy()
+    expect(
+      screen.getByRole('img', { name: '总发电量今年与去年叠加曲线' }),
+    ).toBeTruthy()
+    expect(
+      screen.getByRole('img', { name: '乌东德与三峡来水今年与去年叠加曲线' }),
+    ).toBeTruthy()
+    expect(screen.getByText('总发电量 2025')).toBeTruthy()
+    expect(screen.getByText('总发电量 2026')).toBeTruthy()
+    expect(screen.getByText('乌东德来水 2025')).toBeTruthy()
+    expect(screen.getByText('乌东德来水 2026')).toBeTruthy()
+    expect(screen.getByText('三峡来水 2025')).toBeTruthy()
+    expect(screen.getByText('三峡来水 2026')).toBeTruthy()
+    expect(
+      screen.getAllByText('2025 年虚线为去年同期，2026 年实线为今年，按季度对齐')
+        .length,
+    ).toBe(2)
+    expect(
+      screen.getByText(/东方财富 · 长江电力发电量公告/),
+    ).toBeTruthy()
+    expect(screen.getByText(/（共 6 个季度）/)).toBeTruthy()
+    expect(screen.getAllByText(/最新 2026Q3/).length).toBeGreaterThan(0)
+    expect(screen.queryByRole('combobox', { name: '近 90 个交易日' })).toBeNull()
+    expect(
+      vi
+        .mocked(fetchAPI)
+        .mock.calls.some((call) =>
+          String(call[0]).endsWith('group=hydropower&days=90'),
         ),
     ).toBe(true)
   })

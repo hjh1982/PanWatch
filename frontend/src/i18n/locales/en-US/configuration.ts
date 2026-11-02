@@ -938,6 +938,60 @@ export const configuration = {
       caveat:
         "Scope: the Shanghai Containerized Freight Index (SCFI) composite published by the Shanghai Shipping Exchange every Friday, base 2009-10-16 = 1000, in points. The official site only exposes the latest two prints, so history here comes from OpenContainer's weekly compilation of SCFI releases (from May 2025), with the official two latest prints overriding the same week. Holiday weeks without a print are not filled.",
     },
+    hydropower: {
+      title: 'Yangtze hydropower output',
+      badge: 'Yangtze Power · Quarterly',
+      subtitle:
+        'Quarterly inflows and generation for Yangtze Power’s six cascade hydropower stations (from 2023 Q1)',
+      loading: 'Loading Yangtze Power quarterly generation announcements…',
+      noData:
+        'The data source returned no hydropower data. Refresh and try again.',
+      updatedCount: ' ({{count}} quarters)',
+      units: { generation: '100 GWh', inflow: '100 Mm³' },
+      metrics: {
+        generation: 'Total generation',
+        inflow_udongde: 'Wudongde inflow',
+        inflow_three_gorges: 'Three Gorges inflow',
+        udongde: 'Wudongde',
+        baihetan: 'Baihetan',
+        xiluodu: 'Xiluodu',
+        xiangjiaba: 'Xiangjiaba',
+        three_gorges: 'Three Gorges',
+        gezhouba: 'Gezhouba',
+      },
+      stats: {
+        latest: 'Quarterly generation',
+        latestSub: '{{period}} quarter',
+        yoy: 'Generation YoY',
+        yoySub: 'vs {{period}}',
+        yoyInline: 'YoY {{value}}',
+        inflowU: 'Wudongde inflow',
+        inflowT: 'Three Gorges inflow',
+        noYoy: 'No year-ago data',
+      },
+      charts: {
+        quarterly: 'Quarterly',
+        generationTitle: 'Quarterly generation by station (100 GWh)',
+        generationHint: 'Hover to inspect each station’s quarterly generation',
+        overlayGenerationTitle: 'Generation · this year vs last year',
+        overlayInflowTitle: 'Inflow · this year vs last year',
+        overlayHint:
+          '{{prior}} dashed is the same quarter last year; {{latest}} solid is this year, aligned by quarter',
+        overlayGenerationAria: 'Total generation this year vs last year',
+        overlayInflowAria: 'Wudongde and Three Gorges inflow this year vs last year',
+        inflowHint:
+          'Quarterly inflow is derived by differencing year-to-date disclosures',
+        yUnit: '100 GWh',
+        inflowYUnit: '100 Mm³',
+        empty: 'No hydropower data',
+      },
+      sourcesTitle: 'Sources',
+      since: 'From {{date}}',
+      latest: 'Latest {{date}}',
+      noSourceData: 'No data',
+      caveat:
+        'Scope: Yangtze Power (600900) publishes quarterly generation-completion announcements covering year-to-date inflows at Wudongde and Three Gorges plus quarterly and cumulative generation for the six stations (Wudongde, Baihetan, Xiluodu, Xiangjiaba, Three Gorges, Gezhouba). Quarterly inflow here is the difference between consecutive year-to-date disclosures; annual announcements that show a Q4 column alongside the full year use the Q4 column directly, while annual-only tables subtract Q1–Q3 from the full year. Coverage starts in 2023 Q1 when all six stations operated jointly; missing quarters are not filled.',
+    },
     usCompare: {
       title: 'U.S. returns comparison',
       badge: 'Price return · excludes dividends',

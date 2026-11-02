@@ -157,7 +157,6 @@ GROUPS: tuple[GroupDef, ...] = (
         label="长电来水发电",
         category="commodity",
         accent="#0ea5e9",
-        available=False,
     ),
     GroupDef(
         id="threeGorges",

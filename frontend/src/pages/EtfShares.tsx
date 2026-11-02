@@ -315,6 +315,17 @@ const GOLD_RESERVES_COLOR = '#eab308'
 const GOLD_RESERVES_CHANGE_COLOR = '#b45309'
 const SCFI_COLOR = '#14b8a6'
 const SCFI_CHANGE_COLOR = '#0f766e'
+const HYDROPOWER_ACCENT = '#0ea5e9'
+const HYDROPOWER_UDONGDE_COLOR = '#0284c7'
+const HYDROPOWER_THREE_GORGES_COLOR = '#7c3aed'
+const HYDROPOWER_STATIONS = [
+  { key: 'udongde', color: '#0ea5e9', labelKey: 'etfShares.hydropower.metrics.udongde' },
+  { key: 'baihetan', color: '#f97316', labelKey: 'etfShares.hydropower.metrics.baihetan' },
+  { key: 'xiluodu', color: '#8b5cf6', labelKey: 'etfShares.hydropower.metrics.xiluodu' },
+  { key: 'xiangjiaba', color: '#10b981', labelKey: 'etfShares.hydropower.metrics.xiangjiaba' },
+  { key: 'three_gorges', color: '#eab308', labelKey: 'etfShares.hydropower.metrics.three_gorges' },
+  { key: 'gezhouba', color: '#ef4444', labelKey: 'etfShares.hydropower.metrics.gezhouba' },
+] as const
 const US_COMPARE_DEFAULT_SYMBOLS = ['SCHD', 'SP500', 'DGRO', 'QQQ', 'VYM', 'SMH']
 const US_COMPARE_MAX = 8
 const US_COMPARE_RANGES = ['ytd', '1y', '3y'] as const
@@ -4773,6 +4784,404 @@ function ScfiDashboard({ data }: { data: MetricsPayload }) {
   )
 }
 
+function HydropowerDashboard({ data }: { data: MetricsPayload }) {
+  const { t } = useTranslation('configuration')
+  const generation = data.series.generation ?? []
+  const inflowUdongde = data.series.inflow_udongde ?? []
+  const inflowThreeGorges = data.series.inflow_three_gorges ?? []
+  const generationMetric =
+    data.metrics.find((item) => item.id === 'generation') ?? data.metrics[0]
+  const udongdeMetric = data.metrics.find((item) => item.id === 'inflow_udongde')
+  const threeGorgesMetric = data.metrics.find(
+    (item) => item.id === 'inflow_three_gorges',
+  )
+  const lastValue = (values: Array<number | null>) => {
+    for (let index = values.length - 1; index >= 0; index -= 1) {
+      const value = values[index]
+      if (typeof value === 'number' && Number.isFinite(value)) return value
+    }
+    return null
+  }
+  const latestGeneration = generationMetric?.latest ?? lastValue(generation)
+  const latestUdongde = udongdeMetric?.latest ?? lastValue(inflowUdongde)
+  const latestThreeGorges = threeGorgesMetric?.latest ?? lastValue(inflowThreeGorges)
+  const latestPeriod =
+    generationMetric?.latest_date ?? data.dates[data.dates.length - 1] ?? null
+  const yearAgoPeriod =
+    latestPeriod && latestPeriod.length >= 5
+      ? `${Number(latestPeriod.slice(0, 4)) - 1}Q${latestPeriod.slice(-1)}`
+      : null
+  const yearAgoIndex = yearAgoPeriod ? data.dates.indexOf(yearAgoPeriod) : -1
+  const yearAgoGeneration = yearAgoIndex >= 0 ? generation[yearAgoIndex] ?? null : null
+  const yearAgoUdongde = yearAgoIndex >= 0 ? inflowUdongde[yearAgoIndex] ?? null : null
+  const yearAgoThreeGorges =
+    yearAgoIndex >= 0 ? inflowThreeGorges[yearAgoIndex] ?? null : null
+  const percentChange = (current: number | null, base: number | null) =>
+    typeof current === 'number' && typeof base === 'number' && base !== 0
+      ? ((current - base) / base) * 100
+      : null
+  const generationYoy =
+    typeof latestGeneration === 'number' && typeof yearAgoGeneration === 'number'
+      ? latestGeneration - yearAgoGeneration
+      : null
+  const generationYoyPct = percentChange(latestGeneration, yearAgoGeneration)
+  const udongdeYoyPct = percentChange(latestUdongde, yearAgoUdongde)
+  const threeGorgesYoyPct = percentChange(latestThreeGorges, yearAgoThreeGorges)
+  const quarterTick = (period: string) => period.slice(2)
+  const stationSeries: ChartSeries[] = HYDROPOWER_STATIONS.map((station) => ({
+    code: station.key,
+    name: t(station.labelKey),
+    color: station.color,
+    values: data.series[station.key] ?? [],
+  }))
+  const latestYear = data.dates.length
+    ? data.dates[data.dates.length - 1].slice(0, 4)
+    : ''
+  const priorYear = latestYear ? String(Number(latestYear) - 1) : ''
+  const hasPriorYear = priorYear
+    ? data.dates.some((date) => date.startsWith(priorYear))
+    : false
+  const quarterAxis = ['Q1', 'Q2', 'Q3', 'Q4']
+  const byQuarter = (values: Array<number | null>, year: string) => {
+    const map = new Map<number, number>()
+    data.dates.forEach((date, index) => {
+      if (!date.startsWith(year)) return
+      const value = values[index]
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        map.set(Number(date.slice(-1)), value)
+      }
+    })
+    return quarterAxis.map((_, index) => map.get(index + 1) ?? null)
+  }
+  const generationOverlay: ChartSeries[] = [
+    ...(hasPriorYear
+      ? [
+          {
+            code: `generation_${priorYear}`,
+            name: `${t('etfShares.hydropower.metrics.generation')} ${priorYear}`,
+            color: HYDROPOWER_ACCENT,
+            dashed: true,
+            values: byQuarter(generation, priorYear),
+          },
+        ]
+      : []),
+    {
+      code: `generation_${latestYear}`,
+      name: `${t('etfShares.hydropower.metrics.generation')} ${latestYear}`,
+      color: HYDROPOWER_ACCENT,
+      values: byQuarter(generation, latestYear),
+    },
+  ]
+  const inflowOverlay: ChartSeries[] = [
+    ...(hasPriorYear
+      ? [
+          {
+            code: `inflow_udongde_${priorYear}`,
+            name: `${t('etfShares.hydropower.metrics.inflow_udongde')} ${priorYear}`,
+            color: HYDROPOWER_UDONGDE_COLOR,
+            dashed: true,
+            values: byQuarter(inflowUdongde, priorYear),
+          },
+          {
+            code: `inflow_three_gorges_${priorYear}`,
+            name: `${t('etfShares.hydropower.metrics.inflow_three_gorges')} ${priorYear}`,
+            color: HYDROPOWER_THREE_GORGES_COLOR,
+            dashed: true,
+            values: byQuarter(inflowThreeGorges, priorYear),
+          },
+        ]
+      : []),
+    {
+      code: `inflow_udongde_${latestYear}`,
+      name: `${t('etfShares.hydropower.metrics.inflow_udongde')} ${latestYear}`,
+      color: HYDROPOWER_UDONGDE_COLOR,
+      values: byQuarter(inflowUdongde, latestYear),
+    },
+    {
+      code: `inflow_three_gorges_${latestYear}`,
+      name: `${t('etfShares.hydropower.metrics.inflow_three_gorges')} ${latestYear}`,
+      color: HYDROPOWER_THREE_GORGES_COLOR,
+      values: byQuarter(inflowThreeGorges, latestYear),
+    },
+  ]
+  const sources = data.sources ?? []
+
+  return (
+    <div className="space-y-4">
+      <section className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+        <div className="relative overflow-hidden rounded-xl border border-border/60 bg-card/60 p-3">
+          <span
+            className="absolute inset-y-0 left-0 w-0.5"
+            style={{ backgroundColor: HYDROPOWER_ACCENT }}
+          />
+          <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            <span
+              className="h-2.5 w-1 rounded-sm"
+              style={{ backgroundColor: HYDROPOWER_ACCENT }}
+            />
+            <span className="truncate">{t('etfShares.hydropower.stats.latest')}</span>
+          </div>
+          <div className="mt-1.5 flex items-baseline gap-1">
+            <span className="font-mono text-[19px] font-bold leading-none text-foreground md:text-[21px]">
+              {formatValue(latestGeneration, 2)}
+            </span>
+            <span className="shrink-0 text-[10px] text-muted-foreground">
+              {t('etfShares.hydropower.units.generation')}
+            </span>
+          </div>
+          <div className="mt-1.5 text-[10px] text-muted-foreground/80">
+            {latestPeriod
+              ? t('etfShares.hydropower.stats.latestSub', { period: latestPeriod })
+              : ''}
+          </div>
+        </div>
+
+        <div className="relative overflow-hidden rounded-xl border border-border/60 bg-card/60 p-3">
+          <span
+            className="absolute inset-y-0 left-0 w-0.5"
+            style={{ backgroundColor: HYDROPOWER_UDONGDE_COLOR }}
+          />
+          <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            <span
+              className="h-2.5 w-1 rounded-sm"
+              style={{ backgroundColor: HYDROPOWER_UDONGDE_COLOR }}
+            />
+            <span className="truncate">{t('etfShares.hydropower.stats.yoy')}</span>
+          </div>
+          <div
+            className={`mt-1.5 flex items-baseline gap-1 font-mono text-[19px] font-bold leading-none md:text-[21px] ${marketSignTextClass(generationYoy)}`}
+          >
+            {formatDelta(generationYoy, 2)}
+            <span className="shrink-0 font-sans text-[10px] font-normal text-muted-foreground">
+              {t('etfShares.hydropower.units.generation')}
+            </span>
+          </div>
+          <div className="mt-1.5 flex flex-wrap items-baseline gap-1.5 font-mono text-[10px] text-muted-foreground/80">
+            {yearAgoPeriod ? (
+              <>
+                <span>{formatPercent(generationYoyPct)}</span>
+                <span className="font-sans">
+                  {t('etfShares.hydropower.stats.yoySub', { period: yearAgoPeriod })}
+                </span>
+              </>
+            ) : (
+              <span className="font-sans">{t('etfShares.hydropower.stats.noYoy')}</span>
+            )}
+          </div>
+        </div>
+
+        <div className="relative overflow-hidden rounded-xl border border-border/60 bg-card/60 p-3">
+          <span
+            className="absolute inset-y-0 left-0 w-0.5"
+            style={{ backgroundColor: HYDROPOWER_UDONGDE_COLOR }}
+          />
+          <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            <span
+              className="h-2.5 w-1 rounded-sm"
+              style={{ backgroundColor: HYDROPOWER_UDONGDE_COLOR }}
+            />
+            <span className="truncate">
+              {t('etfShares.hydropower.stats.inflowU')}
+            </span>
+          </div>
+          <div className="mt-1.5 flex items-baseline gap-1">
+            <span className="font-mono text-[19px] font-bold leading-none text-foreground md:text-[21px]">
+              {formatValue(latestUdongde, 2)}
+            </span>
+            <span className="shrink-0 text-[10px] text-muted-foreground">
+              {t('etfShares.hydropower.units.inflow')}
+            </span>
+          </div>
+          <div className="mt-1.5 text-[10px] text-muted-foreground/80">
+            {udongdeYoyPct === null
+              ? t('etfShares.hydropower.stats.noYoy')
+              : t('etfShares.hydropower.stats.yoyInline', {
+                  value: formatPercent(udongdeYoyPct),
+                })}
+          </div>
+        </div>
+
+        <div className="relative overflow-hidden rounded-xl border border-border/60 bg-card/60 p-3">
+          <span
+            className="absolute inset-y-0 left-0 w-0.5"
+            style={{ backgroundColor: HYDROPOWER_THREE_GORGES_COLOR }}
+          />
+          <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            <span
+              className="h-2.5 w-1 rounded-sm"
+              style={{ backgroundColor: HYDROPOWER_THREE_GORGES_COLOR }}
+            />
+            <span className="truncate">
+              {t('etfShares.hydropower.stats.inflowT')}
+            </span>
+          </div>
+          <div className="mt-1.5 flex items-baseline gap-1">
+            <span className="font-mono text-[19px] font-bold leading-none text-foreground md:text-[21px]">
+              {formatValue(latestThreeGorges, 2)}
+            </span>
+            <span className="shrink-0 text-[10px] text-muted-foreground">
+              {t('etfShares.hydropower.units.inflow')}
+            </span>
+          </div>
+          <div className="mt-1.5 text-[10px] text-muted-foreground/80">
+            {threeGorgesYoyPct === null
+              ? t('etfShares.hydropower.stats.noYoy')
+              : t('etfShares.hydropower.stats.yoyInline', {
+                  value: formatPercent(threeGorgesYoyPct),
+                })}
+          </div>
+        </div>
+      </section>
+
+      <section className="card overflow-hidden">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border/60 px-4 py-2.5">
+          <span
+            className="h-4 w-1 rounded"
+            style={{ backgroundColor: HYDROPOWER_ACCENT }}
+          />
+          <h2 className="text-[13px] font-semibold">
+            {t('etfShares.hydropower.charts.generationTitle')}
+          </h2>
+          <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+            {t('etfShares.hydropower.charts.quarterly')}
+          </span>
+          {data.as_of && (
+            <span className="ml-auto font-mono text-[11px] text-muted-foreground">
+              {data.as_of}
+            </span>
+          )}
+        </div>
+        <div className="px-2 pb-2 pt-3 md:px-4">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2 px-1">
+            <p className="text-[11px] text-muted-foreground/80">
+              {t('etfShares.hydropower.charts.generationHint')}
+            </p>
+            <ChartLegend items={stationSeries} />
+          </div>
+          <ShareChart
+            dates={data.dates}
+            series={stationSeries}
+            emptyText={t('etfShares.hydropower.charts.empty')}
+            unitLabel={t('etfShares.hydropower.charts.yUnit')}
+            ariaLabel={t('etfShares.hydropower.charts.generationTitle')}
+            labelByName
+            valueUnit={t('etfShares.hydropower.units.generation')}
+            valueDigits={2}
+            sortTooltip={false}
+            zeroBased
+            xTickFormat={quarterTick}
+          />
+        </div>
+      </section>
+
+      <section className="card overflow-hidden">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border/60 px-4 py-2.5">
+          <span
+            className="h-4 w-1 rounded"
+            style={{ backgroundColor: HYDROPOWER_ACCENT }}
+          />
+          <h2 className="text-[13px] font-semibold">
+            {t('etfShares.hydropower.charts.overlayGenerationTitle')}
+          </h2>
+          <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+            {t('etfShares.hydropower.charts.quarterly')}
+          </span>
+          <span className="text-[11px] text-muted-foreground">
+            {t('etfShares.hydropower.charts.overlayHint', {
+              prior: priorYear,
+              latest: latestYear,
+            })}
+          </span>
+        </div>
+        <div className="px-2 pb-2 pt-3 md:px-4">
+          <div className="mb-2 flex justify-end px-1">
+            <ChartLegend items={generationOverlay} />
+          </div>
+          <ShareChart
+            dates={quarterAxis}
+            series={generationOverlay}
+            emptyText={t('etfShares.hydropower.charts.empty')}
+            unitLabel={t('etfShares.hydropower.charts.yUnit')}
+            ariaLabel={t('etfShares.hydropower.charts.overlayGenerationAria')}
+            labelByName
+            valueUnit={t('etfShares.hydropower.units.generation')}
+            valueDigits={2}
+            sortTooltip={false}
+            zeroBased
+          />
+        </div>
+      </section>
+
+      <section className="card overflow-hidden">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border/60 px-4 py-2.5">
+          <span
+            className="h-4 w-1 rounded"
+            style={{ backgroundColor: HYDROPOWER_THREE_GORGES_COLOR }}
+          />
+          <h2 className="text-[13px] font-semibold">
+            {t('etfShares.hydropower.charts.overlayInflowTitle')}
+          </h2>
+          <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+            {t('etfShares.hydropower.charts.quarterly')}
+          </span>
+          <span className="text-[11px] text-muted-foreground">
+            {t('etfShares.hydropower.charts.overlayHint', {
+              prior: priorYear,
+              latest: latestYear,
+            })}
+          </span>
+        </div>
+        <div className="px-2 pb-2 pt-3 md:px-4">
+          <div className="mb-2 flex justify-end px-1">
+            <ChartLegend items={inflowOverlay} />
+          </div>
+          <ShareChart
+            dates={quarterAxis}
+            series={inflowOverlay}
+            emptyText={t('etfShares.hydropower.charts.empty')}
+            unitLabel={t('etfShares.hydropower.charts.inflowYUnit')}
+            ariaLabel={t('etfShares.hydropower.charts.overlayInflowAria')}
+            labelByName
+            valueUnit={t('etfShares.hydropower.units.inflow')}
+            valueDigits={2}
+            sortTooltip={false}
+            zeroBased
+          />
+        </div>
+        <div className="space-y-2 border-t border-border/60 px-4 py-3">
+          <div className="text-[11px] font-medium text-muted-foreground">
+            {t('etfShares.hydropower.sourcesTitle')}
+          </div>
+          <ul className="space-y-1 text-[11px] text-muted-foreground/80">
+            {sources.map((source) => (
+              <li key={source.id} className="flex flex-wrap gap-x-1.5">
+                <span>{source.name}</span>
+                <span>· {source.cadence}</span>
+                {source.start && (
+                  <span>
+                    · {t('etfShares.hydropower.since', { date: source.start })}
+                  </span>
+                )}
+                {source.latest && (
+                  <span>
+                    · {t('etfShares.hydropower.latest', { date: source.latest })}
+                  </span>
+                )}
+                {!source.latest && (
+                  <span>· {t('etfShares.hydropower.noSourceData')}</span>
+                )}
+              </li>
+            ))}
+          </ul>
+          <p className="text-[11px] text-muted-foreground/80">
+            {t('etfShares.hydropower.caveat')}
+          </p>
+        </div>
+      </section>
+    </div>
+  )
+}
+
 function UsCompareDashboard() {
   const { t } = useTranslation('configuration')
   const { toast } = useToast()
@@ -5325,6 +5734,7 @@ function EtfSharesPage() {
   const isUsM2GoldGroup = activeGroup?.id === 'usM2Gold'
   const isGoldReservesGroup = activeGroup?.id === 'goldReserves'
   const isScfiGroup = activeGroup?.id === 'scfi'
+  const isHydropowerGroup = activeGroup?.id === 'hydropower'
   const isUsCompareGroup = activeGroup?.id === 'usCompare'
   const pageTitle = isCoalGroup
     ? t('etfShares.coal.title')
@@ -5342,6 +5752,8 @@ function EtfSharesPage() {
                 ? t('etfShares.goldReserves.title')
                 : isScfiGroup
                   ? t('etfShares.scfi.title')
+                  : isHydropowerGroup
+                    ? t('etfShares.hydropower.title')
                 : isUsCompareGroup
                   ? t('etfShares.usCompare.title')
                 : isInventoryGroup
@@ -5369,6 +5781,8 @@ function EtfSharesPage() {
                 ? t('etfShares.goldReserves.badge')
                 : isScfiGroup
                   ? t('etfShares.scfi.badge')
+                  : isHydropowerGroup
+                    ? t('etfShares.hydropower.badge')
                 : isUsCompareGroup
                   ? t('etfShares.usCompare.badge')
                 : isInventoryGroup
@@ -5396,6 +5810,8 @@ function EtfSharesPage() {
                 ? t('etfShares.goldReserves.subtitle')
                 : isScfiGroup
                   ? t('etfShares.scfi.subtitle')
+                  : isHydropowerGroup
+                    ? t('etfShares.hydropower.subtitle')
                 : isUsCompareGroup
                   ? t('etfShares.usCompare.subtitle')
                 : isInventoryGroup
@@ -5427,6 +5843,8 @@ function EtfSharesPage() {
                 ? t('etfShares.goldReserves.loading')
                 : isScfiGroup
                   ? t('etfShares.scfi.loading')
+                  : isHydropowerGroup
+                    ? t('etfShares.hydropower.loading')
                 : isUsCompareGroup
                   ? t('etfShares.usCompare.loading')
                 : isInventoryGroup
@@ -5454,6 +5872,8 @@ function EtfSharesPage() {
                 ? t('etfShares.goldReserves.noData')
                 : isScfiGroup
                   ? t('etfShares.scfi.noData')
+                  : isHydropowerGroup
+                    ? t('etfShares.hydropower.noData')
                 : isUsCompareGroup
                   ? t('etfShares.usCompare.noData')
                 : isInventoryGroup
@@ -5581,6 +6001,10 @@ function EtfSharesPage() {
                       ? t('etfShares.scfi.updatedCount', {
                           count: curve.coverage.trading_days,
                         })
+                      : isHydropowerGroup
+                        ? t('etfShares.hydropower.updatedCount', {
+                            count: curve.coverage.trading_days,
+                          })
                     : isInventoryGroup
                 ? t('etfShares.aluminumInventory.updatedCount', {
                     count: curve.coverage.trading_days,
@@ -5631,6 +6055,7 @@ function EtfSharesPage() {
                 !isUsM2GoldGroup &&
                 !isGoldReservesGroup &&
                 !isScfiGroup &&
+                !isHydropowerGroup &&
                 !isInventoryGroup && (
                 <Select
                   value={String(days)}
@@ -5748,6 +6173,8 @@ function EtfSharesPage() {
             <GoldReservesDashboard data={metricsCurve} />
           ) : isScfiGroup && metricsCurve ? (
             <ScfiDashboard data={metricsCurve} />
+          ) : isHydropowerGroup && metricsCurve ? (
+            <HydropowerDashboard data={metricsCurve} />
           ) : !hasData ? (
             <section className="card flex h-[320px] flex-col items-center justify-center gap-2 px-6 text-center">
               <p className="text-[13px] text-muted-foreground">{noDataText}</p>
