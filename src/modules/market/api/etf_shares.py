@@ -17,6 +17,7 @@ from src.modules.market import (
     global_coal_service,
     gold_reserves_service,
     margin_service,
+    scfi_service,
     three_gorges_service,
     us_compare_service,
     us_m2_gold_service,
@@ -81,6 +82,8 @@ def _load_curve(
         return gold_reserves_service.get_curve_payload(
             group, days, force=force
         )
+    if group == scfi_service.SCFI_GROUP_ID:
+        return scfi_service.get_curve_payload(group, days, force=force)
     if group == us_compare_service.US_COMPARE_GROUP_ID:
         return us_compare_service.get_compare_payload(
             ",".join(us_compare_service.DEFAULT_SYMBOLS),

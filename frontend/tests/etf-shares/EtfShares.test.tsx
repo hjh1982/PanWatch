@@ -123,8 +123,16 @@ const catalog = {
       id: 'scfi',
       label: '集运运价 SCFI',
       category: 'commodity',
-      available: false,
+      available: true,
       accent: '#14b8a6',
+      funds: [],
+    },
+    {
+      id: 'hydropower',
+      label: '水力发电量',
+      category: 'industry',
+      available: false,
+      accent: '#0ea5e9',
       funds: [],
     },
   ],
@@ -579,6 +587,57 @@ const goldReservesCurve = {
   ],
 }
 
+const scfiCurve = {
+  group: 'scfi',
+  group_label: '集运运价 SCFI',
+  scope: '上海出口集装箱运价指数（SCFI）综合指数，周度',
+  unit: '点',
+  as_of: '2026-10-30',
+  dates: [
+    '2026-09-25',
+    '2026-10-02',
+    '2026-10-09',
+    '2026-10-16',
+    '2026-10-23',
+    '2026-10-30',
+  ],
+  metrics: [
+    {
+      id: 'scfi',
+      label: 'SCFI 综合指数',
+      unit: '点',
+      axis: 'left',
+      latest: 3687.35,
+      latest_date: '2026-10-30',
+      prior: 3681.34,
+      delta: 6.01,
+      delta_pct: 0.1633,
+    },
+  ],
+  series: {
+    scfi: [3500, 3550, 3600, 3662.3, 3681.34, 3687.35],
+  },
+  coverage: { trading_days: 6, target: 6, complete: true },
+  sources: [
+    {
+      id: 'sse',
+      name: '上海航运交易所 · SCFI',
+      url: 'https://www.sse.net.cn/index/singleIndex?indexType=scfi',
+      cadence: '周度',
+      start: '2026-10-23',
+      latest: '2026-10-30',
+    },
+    {
+      id: 'opencontainer',
+      name: 'OpenContainer · SCFI 周度整理',
+      url: 'https://opencontainer.kr/en/en-index/en-scfi-2025-2026/',
+      cadence: '周度',
+      start: '2025-05-30',
+      latest: '2026-10-30',
+    },
+  ],
+}
+
 const usComparePayload = {
   group: 'usCompare',
   group_label: '美股收益对比',
@@ -728,6 +787,9 @@ beforeEach(() => {
     }
     if (path.includes('/curve?group=goldReserves')) {
       return Promise.resolve(goldReservesCurve)
+    }
+    if (path.includes('/curve?group=scfi')) {
+      return Promise.resolve(scfiCurve)
     }
     if (path.includes('/us-compare')) {
       const query = new URLSearchParams(String(path).split('?')[1] ?? '')
@@ -1332,15 +1394,54 @@ describe('ETF share tracker page', () => {
     render(<EtfSharesPage />)
     await screen.findAllByText('沪深300ETF华泰柏瑞')
 
-    const entries = screen.getAllByRole('button', { name: '集运运价 SCFI' })
+    const entries = screen.getAllByRole('button', { name: '长电来水发电' })
     await user.click(entries[0])
 
     expect(await screen.findByText(/该分组的数据源尚未接入/)).toBeTruthy()
     expect(screen.getAllByText('待接入').length).toBeGreaterThan(0)
     expect(screen.queryByRole('button', { name: /刷新数据/ })).toBeNull()
     expect(
-      vi.mocked(fetchAPI).mock.calls.some((call) => String(call[0]).includes('group=scfi')),
+      vi
+        .mocked(fetchAPI)
+        .mock.calls.some((call) => String(call[0]).includes('group=hydropower')),
     ).toBe(false)
+  })
+
+  it('renders the SCFI container freight dashboard', async () => {
+    const user = userEvent.setup()
+    render(<EtfSharesPage />)
+    await screen.findAllByText('沪深300ETF华泰柏瑞')
+
+    await user.click(screen.getAllByRole('button', { name: '集运运价 SCFI' })[0])
+
+    expect(
+      await screen.findByRole('heading', { name: '集运运价 SCFI' }),
+    ).toBeTruthy()
+    expect(screen.getByText('上海航运交易所 · 周度')).toBeTruthy()
+    expect(screen.getAllByText('3687.35').length).toBeGreaterThan(0)
+    expect(screen.getByText('+6.01')).toBeTruthy()
+    expect(screen.getByText('+0.16%')).toBeTruthy()
+    expect(screen.getByText('+137.35')).toBeTruthy()
+    expect(screen.getByText('+3.87%')).toBeTruthy()
+    expect(screen.getByText('较 2026-10-02')).toBeTruthy()
+    expect(screen.getByText('连续上涨')).toBeTruthy()
+    expect(screen.getByText('自 2026-10-02 起')).toBeTruthy()
+    expect(
+      screen.getByRole('img', { name: 'SCFI 综合指数（点）' }),
+    ).toBeTruthy()
+    expect(screen.getByRole('img', { name: '周度涨跌（点）' })).toBeTruthy()
+    expect(screen.getByText(/上海航运交易所 · SCFI/)).toBeTruthy()
+    expect(screen.getByText(/OpenContainer · SCFI 周度整理/)).toBeTruthy()
+    expect(screen.getByText(/（共 6 周）/)).toBeTruthy()
+    expect(screen.getAllByText(/最新 2026-10-30/).length).toBeGreaterThan(0)
+    expect(screen.queryByRole('combobox', { name: '近 90 个交易日' })).toBeNull()
+    expect(
+      vi
+        .mocked(fetchAPI)
+        .mock.calls.some((call) =>
+          String(call[0]).endsWith('group=scfi&days=90'),
+        ),
+    ).toBe(true)
   })
 
   it('refreshes through the POST endpoint and shows the backfill banner', async () => {

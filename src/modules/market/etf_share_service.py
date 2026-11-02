@@ -151,7 +151,6 @@ GROUPS: tuple[GroupDef, ...] = (
         label="集运运价 SCFI",
         category="commodity",
         accent="#14b8a6",
-        available=False,
     ),
     GroupDef(
         id="hydropower",

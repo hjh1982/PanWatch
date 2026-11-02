@@ -313,6 +313,8 @@ const US_M2_GOLD_METRIC_KEYS = {
 } as const
 const GOLD_RESERVES_COLOR = '#eab308'
 const GOLD_RESERVES_CHANGE_COLOR = '#b45309'
+const SCFI_COLOR = '#14b8a6'
+const SCFI_CHANGE_COLOR = '#0f766e'
 const US_COMPARE_DEFAULT_SYMBOLS = ['SCHD', 'SP500', 'DGRO', 'QQQ', 'VYM', 'SMH']
 const US_COMPARE_MAX = 8
 const US_COMPARE_RANGES = ['ytd', '1y', '3y'] as const
@@ -4503,6 +4505,274 @@ function GoldReservesDashboard({ data }: { data: MetricsPayload }) {
   )
 }
 
+function ScfiDashboard({ data }: { data: MetricsPayload }) {
+  const { t } = useTranslation('configuration')
+  const values = data.series.scfi ?? []
+  const metric = data.metrics.find((item) => item.id === 'scfi') ?? data.metrics[0]
+  const latestValue = metric?.latest ?? null
+  const latestWeek = metric?.latest_date ?? data.as_of
+  const baseIndex = values.length - 5
+  const fourWeekBase = baseIndex >= 0 ? values[baseIndex] ?? null : null
+  const fourWeekChange =
+    typeof latestValue === 'number' && typeof fourWeekBase === 'number'
+      ? latestValue - fourWeekBase
+      : null
+  const fourWeekPct =
+    typeof fourWeekChange === 'number' && fourWeekBase
+      ? (fourWeekChange / fourWeekBase) * 100
+      : null
+  const lastDelta = metric?.delta ?? null
+  const direction = typeof lastDelta === 'number' ? Math.sign(lastDelta) : 0
+  let streak = 0
+  if (direction !== 0) {
+    for (let index = values.length - 1; index > 0; index -= 1) {
+      const current = values[index]
+      const previous = values[index - 1]
+      if (
+        typeof current !== 'number' ||
+        typeof previous !== 'number' ||
+        Math.sign(current - previous) !== direction
+      ) {
+        break
+      }
+      streak += 1
+    }
+  }
+  const streakSince = streak > 0 ? data.dates[data.dates.length - streak] ?? null : null
+  const streakLabel =
+    direction > 0
+      ? t('etfShares.scfi.stats.streakUp')
+      : direction < 0
+        ? t('etfShares.scfi.stats.streakDown')
+        : t('etfShares.scfi.stats.streakFlat')
+  const scfiSeries: ChartSeries[] = [
+    {
+      code: 'scfi',
+      name: t('etfShares.scfi.metrics.scfi'),
+      color: SCFI_COLOR,
+      values,
+      filled: true,
+    },
+  ]
+  const sources = data.sources ?? []
+  const weekTick = (date: string) => date.slice(2)
+
+  return (
+    <div className="space-y-4">
+      <section className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+        <div className="relative overflow-hidden rounded-xl border border-border/60 bg-card/60 p-3">
+          <span
+            className="absolute inset-y-0 left-0 w-0.5"
+            style={{ backgroundColor: SCFI_COLOR }}
+          />
+          <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            <span
+              className="h-2.5 w-1 rounded-sm"
+              style={{ backgroundColor: SCFI_COLOR }}
+            />
+            <span className="truncate">{t('etfShares.scfi.stats.latest')}</span>
+          </div>
+          <div className="mt-1.5 flex items-baseline gap-1">
+            <span className="font-mono text-[19px] font-bold leading-none text-foreground md:text-[21px]">
+              {formatValue(latestValue, 2)}
+            </span>
+            <span className="shrink-0 text-[10px] text-muted-foreground">
+              {t('etfShares.scfi.units.index')}
+            </span>
+          </div>
+          <div className="mt-1.5 text-[10px] text-muted-foreground/80">
+            {latestWeek
+              ? t('etfShares.scfi.stats.latestSub', { date: latestWeek })
+              : ''}
+          </div>
+        </div>
+
+        <div className="relative overflow-hidden rounded-xl border border-border/60 bg-card/60 p-3">
+          <span
+            className="absolute inset-y-0 left-0 w-0.5"
+            style={{ backgroundColor: SCFI_CHANGE_COLOR }}
+          />
+          <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            <span
+              className="h-2.5 w-1 rounded-sm"
+              style={{ backgroundColor: SCFI_CHANGE_COLOR }}
+            />
+            <span className="truncate">{t('etfShares.scfi.stats.wow')}</span>
+          </div>
+          <div
+            className={`mt-1.5 flex items-baseline gap-1 font-mono text-[19px] font-bold leading-none md:text-[21px] ${marketSignTextClass(metric?.delta ?? null)}`}
+          >
+            {formatDelta(metric?.delta ?? null, 2)}
+            <span className="shrink-0 font-sans text-[10px] font-normal text-muted-foreground">
+              {t('etfShares.scfi.units.change')}
+            </span>
+          </div>
+          <div className="mt-1.5 font-mono text-[10px] text-muted-foreground/80">
+            {formatPercent(metric?.delta_pct ?? null)}
+          </div>
+        </div>
+
+        <div className="relative overflow-hidden rounded-xl border border-border/60 bg-card/60 p-3">
+          <span
+            className="absolute inset-y-0 left-0 w-0.5"
+            style={{ backgroundColor: SCFI_CHANGE_COLOR }}
+          />
+          <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            <span
+              className="h-2.5 w-1 rounded-sm"
+              style={{ backgroundColor: SCFI_CHANGE_COLOR }}
+            />
+            <span className="truncate">{t('etfShares.scfi.stats.fourWeek')}</span>
+          </div>
+          <div
+            className={`mt-1.5 flex items-baseline gap-1 font-mono text-[19px] font-bold leading-none md:text-[21px] ${marketSignTextClass(fourWeekChange)}`}
+          >
+            {formatDelta(fourWeekChange, 2)}
+            <span className="shrink-0 font-sans text-[10px] font-normal text-muted-foreground">
+              {t('etfShares.scfi.units.change')}
+            </span>
+          </div>
+          <div className="mt-1.5 flex flex-wrap items-baseline gap-1.5 font-mono text-[10px] text-muted-foreground/80">
+            <span>{formatPercent(fourWeekPct)}</span>
+            {fourWeekBase !== null && (
+              <span className="font-sans">
+                {t('etfShares.scfi.stats.fourWeekSub', {
+                  date: data.dates[baseIndex] ?? '',
+                })}
+              </span>
+            )}
+          </div>
+        </div>
+
+        <div className="relative overflow-hidden rounded-xl border border-border/60 bg-card/60 p-3">
+          <span
+            className="absolute inset-y-0 left-0 w-0.5"
+            style={{ backgroundColor: SCFI_COLOR }}
+          />
+          <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            <span
+              className="h-2.5 w-1 rounded-sm"
+              style={{ backgroundColor: SCFI_COLOR }}
+            />
+            <span className="truncate">{streakLabel}</span>
+          </div>
+          <div className="mt-1.5 flex items-baseline gap-1">
+            <span className="font-mono text-[19px] font-bold leading-none text-foreground md:text-[21px]">
+              {streak}
+            </span>
+            <span className="shrink-0 text-[10px] text-muted-foreground">
+              {t('etfShares.scfi.units.weeks')}
+            </span>
+          </div>
+          <div className="mt-1.5 text-[10px] text-muted-foreground/80">
+            {streakSince
+              ? t('etfShares.scfi.stats.streakSub', { date: streakSince })
+              : t('etfShares.scfi.stats.streakNone')}
+          </div>
+        </div>
+      </section>
+
+      <section className="card overflow-hidden">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border/60 px-4 py-2.5">
+          <span
+            className="h-4 w-1 rounded"
+            style={{ backgroundColor: SCFI_COLOR }}
+          />
+          <h2 className="text-[13px] font-semibold">
+            {t('etfShares.scfi.charts.indexTitle')}
+          </h2>
+          <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+            {t('etfShares.scfi.charts.weekly')}
+          </span>
+          {data.as_of && (
+            <span className="ml-auto font-mono text-[11px] text-muted-foreground">
+              {data.as_of}
+            </span>
+          )}
+        </div>
+        <div className="px-2 pb-2 pt-3 md:px-4">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2 px-1">
+            <p className="text-[11px] text-muted-foreground/80">
+              {t('etfShares.scfi.charts.indexHint')}
+            </p>
+            <ChartLegend items={scfiSeries} />
+          </div>
+          <ShareChart
+            dates={data.dates}
+            series={scfiSeries}
+            emptyText={t('etfShares.scfi.charts.empty')}
+            unitLabel={t('etfShares.scfi.charts.yUnit')}
+            ariaLabel={t('etfShares.scfi.charts.indexTitle')}
+            labelByName
+            valueUnit={t('etfShares.scfi.units.index')}
+            valueDigits={2}
+            sortTooltip={false}
+            xTickFormat={weekTick}
+          />
+        </div>
+      </section>
+
+      <section className="card overflow-hidden">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border/60 px-4 py-2.5">
+          <span
+            className="h-4 w-1 rounded"
+            style={{ backgroundColor: SCFI_CHANGE_COLOR }}
+          />
+          <h2 className="text-[13px] font-semibold">
+            {t('etfShares.scfi.charts.changeTitle')}
+          </h2>
+          <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+            {t('etfShares.scfi.charts.weekly')}
+          </span>
+          <span className="text-[11px] text-muted-foreground">
+            {t('etfShares.scfi.charts.changeHint')}
+          </span>
+        </div>
+        <div className="px-2 pb-2 pt-3 md:px-4">
+          <DailyChangeChart
+            dates={data.dates}
+            values={values}
+            emptyText={t('etfShares.scfi.charts.empty')}
+            unitLabel={t('etfShares.scfi.charts.yUnit')}
+            valueUnit={t('etfShares.scfi.units.change')}
+            ariaLabel={t('etfShares.scfi.charts.changeTitle')}
+            xTickFormat={weekTick}
+          />
+        </div>
+        <div className="space-y-2 border-t border-border/60 px-4 py-3">
+          <div className="text-[11px] font-medium text-muted-foreground">
+            {t('etfShares.scfi.sourcesTitle')}
+          </div>
+          <ul className="space-y-1 text-[11px] text-muted-foreground/80">
+            {sources.map((source) => (
+              <li key={source.id} className="flex flex-wrap gap-x-1.5">
+                <span>{source.name}</span>
+                <span>· {source.cadence}</span>
+                {source.start && (
+                  <span>
+                    · {t('etfShares.scfi.since', { date: source.start })}
+                  </span>
+                )}
+                {source.latest && (
+                  <span>
+                    · {t('etfShares.scfi.latest', { date: source.latest })}
+                  </span>
+                )}
+                {!source.latest && (
+                  <span>· {t('etfShares.scfi.noSourceData')}</span>
+                )}
+              </li>
+            ))}
+          </ul>
+          <p className="text-[11px] text-muted-foreground/80">
+            {t('etfShares.scfi.caveat')}
+          </p>
+        </div>
+      </section>
+    </div>
+  )
+}
+
 function UsCompareDashboard() {
   const { t } = useTranslation('configuration')
   const { toast } = useToast()
@@ -5054,6 +5324,7 @@ function EtfSharesPage() {
   const isAutoSalesGroup = activeGroup?.id === 'autoSales'
   const isUsM2GoldGroup = activeGroup?.id === 'usM2Gold'
   const isGoldReservesGroup = activeGroup?.id === 'goldReserves'
+  const isScfiGroup = activeGroup?.id === 'scfi'
   const isUsCompareGroup = activeGroup?.id === 'usCompare'
   const pageTitle = isCoalGroup
     ? t('etfShares.coal.title')
@@ -5069,6 +5340,8 @@ function EtfSharesPage() {
               ? t('etfShares.usM2Gold.title')
               : isGoldReservesGroup
                 ? t('etfShares.goldReserves.title')
+                : isScfiGroup
+                  ? t('etfShares.scfi.title')
                 : isUsCompareGroup
                   ? t('etfShares.usCompare.title')
                 : isInventoryGroup
@@ -5094,6 +5367,8 @@ function EtfSharesPage() {
               ? t('etfShares.usM2Gold.badge')
               : isGoldReservesGroup
                 ? t('etfShares.goldReserves.badge')
+                : isScfiGroup
+                  ? t('etfShares.scfi.badge')
                 : isUsCompareGroup
                   ? t('etfShares.usCompare.badge')
                 : isInventoryGroup
@@ -5119,6 +5394,8 @@ function EtfSharesPage() {
               ? t('etfShares.usM2Gold.subtitle')
               : isGoldReservesGroup
                 ? t('etfShares.goldReserves.subtitle')
+                : isScfiGroup
+                  ? t('etfShares.scfi.subtitle')
                 : isUsCompareGroup
                   ? t('etfShares.usCompare.subtitle')
                 : isInventoryGroup
@@ -5148,6 +5425,8 @@ function EtfSharesPage() {
               ? t('etfShares.usM2Gold.loading')
               : isGoldReservesGroup
                 ? t('etfShares.goldReserves.loading')
+                : isScfiGroup
+                  ? t('etfShares.scfi.loading')
                 : isUsCompareGroup
                   ? t('etfShares.usCompare.loading')
                 : isInventoryGroup
@@ -5173,6 +5452,8 @@ function EtfSharesPage() {
               ? t('etfShares.usM2Gold.noData')
               : isGoldReservesGroup
                 ? t('etfShares.goldReserves.noData')
+                : isScfiGroup
+                  ? t('etfShares.scfi.noData')
                 : isUsCompareGroup
                   ? t('etfShares.usCompare.noData')
                 : isInventoryGroup
@@ -5296,6 +5577,10 @@ function EtfSharesPage() {
                     ? t('etfShares.goldReserves.updatedCount', {
                         count: curve.coverage.trading_days,
                       })
+                    : isScfiGroup
+                      ? t('etfShares.scfi.updatedCount', {
+                          count: curve.coverage.trading_days,
+                        })
                     : isInventoryGroup
                 ? t('etfShares.aluminumInventory.updatedCount', {
                     count: curve.coverage.trading_days,
@@ -5345,6 +5630,7 @@ function EtfSharesPage() {
                 !isAutoSalesGroup &&
                 !isUsM2GoldGroup &&
                 !isGoldReservesGroup &&
+                !isScfiGroup &&
                 !isInventoryGroup && (
                 <Select
                   value={String(days)}
@@ -5460,6 +5746,8 @@ function EtfSharesPage() {
             <UsM2GoldDashboard data={metricsCurve} />
           ) : isGoldReservesGroup && metricsCurve ? (
             <GoldReservesDashboard data={metricsCurve} />
+          ) : isScfiGroup && metricsCurve ? (
+            <ScfiDashboard data={metricsCurve} />
           ) : !hasData ? (
             <section className="card flex h-[320px] flex-col items-center justify-center gap-2 px-6 text-center">
               <p className="text-[13px] text-muted-foreground">{noDataText}</p>
