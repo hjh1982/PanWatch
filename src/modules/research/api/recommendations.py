@@ -25,6 +25,7 @@ from src.modules.strategy.strategy_engine import (
     refresh_strategy_signals,
 )
 from src.modules.strategy.factor_eval import evaluate_factor_ic
+from src.modules.research import cash_option_service
 from src.modules.research.signal_explain import enrich_signal
 from src.platform.persistence.database import SessionLocal
 from src.platform.persistence.models import StrategySignalRun
@@ -363,3 +364,13 @@ def strategy_weight_history(
         market=market,
         limit=limit,
     )
+
+
+@router.get("/cash-options")
+def get_cash_option_events(force: bool = Query(False, description="是否跳过缓存强制刷新")):
+    return cash_option_service.get_payload(force=force)
+
+
+@router.post("/cash-options/refresh")
+def refresh_cash_option_events():
+    return cash_option_service.get_payload(force=True)

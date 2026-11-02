@@ -14,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useLocalStorage } from '@/lib/utils'
 import StockInsightModal from '@panwatch/biz-ui/components/stock-insight-modal'
 import FactorWeightsPanel from '@/components/FactorWeightsPanel'
+import CashOptionPanel from '@/components/CashOptionPanel'
 import SignalScoreShareCard from '@/components/SignalScoreShareCard'
 
 type SourceFilter = 'all' | 'market_scan' | 'watchlist' | 'mixed'
@@ -210,6 +211,7 @@ const regimeToneClass = (regime?: string) => {
 export default function OpportunitiesPage() {
   const { t } = useTranslation('configuration')
   const oppT = t as unknown as (key: string, options?: Record<string, unknown>) => string
+  const [tab, setTab] = useLocalStorage<'signals' | 'cashOption'>('panwatch_opportunities_tab_v1', 'signals')
   const [loading, setLoading] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
@@ -516,24 +518,51 @@ export default function OpportunitiesPage() {
             {oppT('opportunities.title')}
           </h1>
           <p className="text-[12px] text-muted-foreground mt-1">
-            {oppT('opportunities.subtitle')}
+            {tab === 'cashOption'
+              ? oppT('opportunities.cashOption.subtitle')
+              : oppT('opportunities.subtitle')}
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="text-[11px] text-muted-foreground">{snapshotDate || oppT('opportunities.latestSnapshot')}</span>
-          <Button
-            variant="secondary"
-            size="sm"
-            className="h-8 text-[12px]"
-            onClick={handleRefresh}
-            disabled={refreshing}
-          >
-            {refreshing ? <span className="w-3.5 h-3.5 border-2 border-current/30 border-t-current rounded-full animate-spin" /> : <RefreshCw className="w-3.5 h-3.5 mr-1" />}
-            {oppT('opportunities.refresh')}
-          </Button>
-        </div>
+        {tab === 'signals' && (
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] text-muted-foreground">{snapshotDate || oppT('opportunities.latestSnapshot')}</span>
+            <Button
+              variant="secondary"
+              size="sm"
+              className="h-8 text-[12px]"
+              onClick={handleRefresh}
+              disabled={refreshing}
+            >
+              {refreshing ? <span className="w-3.5 h-3.5 border-2 border-current/30 border-t-current rounded-full animate-spin" /> : <RefreshCw className="w-3.5 h-3.5 mr-1" />}
+              {oppT('opportunities.refresh')}
+            </Button>
+          </div>
+        )}
       </div>
 
+      <div className="mb-4 inline-flex rounded-lg border border-border/60 bg-accent/40 p-0.5">
+        <button
+          type="button"
+          onClick={() => setTab('signals')}
+          aria-pressed={tab === 'signals'}
+          className={`rounded-md px-3 py-1.5 text-[12px] transition-colors ${tab === 'signals' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+        >
+          {oppT('opportunities.cashOption.tabSignals')}
+        </button>
+        <button
+          type="button"
+          onClick={() => setTab('cashOption')}
+          aria-pressed={tab === 'cashOption'}
+          className={`rounded-md px-3 py-1.5 text-[12px] transition-colors ${tab === 'cashOption' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+        >
+          {oppT('opportunities.cashOption.tabCashOption')}
+        </button>
+      </div>
+
+      {tab === 'cashOption' && <CashOptionPanel />}
+
+      {tab === 'signals' && (
+        <>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
         <div className="card p-3">
           <div className="text-[11px] text-muted-foreground">{oppT('opportunities.currentCandidates')}</div>
@@ -825,6 +854,8 @@ export default function OpportunitiesPage() {
           <FactorWeightsPanel />
         </div>
       </details>
+        </>
+      )}
 
       <StockInsightModal
         open={insightOpen}

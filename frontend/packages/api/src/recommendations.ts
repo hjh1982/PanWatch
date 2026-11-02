@@ -322,6 +322,53 @@ export interface StrategyWeightHistoryResponse {
   items: StrategyWeightHistoryItem[]
 }
 
+export type CashOptionStatus = 'active' | 'upcoming' | 'ended' | 'unknown'
+export type CashOptionEligibility = 'dissenting' | 'all' | 'unknown'
+export type CashOptionMethod = 'merger' | 'delisting' | 'other'
+
+export interface CashOptionEvent {
+  code: string
+  name: string
+  market: string
+  method: CashOptionMethod
+  exercise_price: number | null
+  quote_price: number | null
+  quote_date: string | null
+  reference_price: number | null
+  basis: 'quote' | 'reference' | null
+  premium_pct: number | null
+  annualized_pct: number | null
+  record_date: string | null
+  window_start: string | null
+  window_end: string | null
+  status: CashOptionStatus
+  days_left: number | null
+  eligibility: CashOptionEligibility
+  apply_code: string | null
+  announcement_title: string
+  announcement_date: string
+  announcement_url: string
+}
+
+export interface CashOptionPayload {
+  as_of: string
+  summary: {
+    active: number
+    upcoming: number
+    recent_ended: number
+    best_premium_pct: number | null
+  }
+  events: CashOptionEvent[]
+  error: string
+  sources: Array<{
+    id: string
+    name: string
+    url: string
+    cadence: string
+    latest: string | null
+  }>
+}
+
 const appendQuery = (q: URLSearchParams, key: string, value: unknown) => {
   if (value == null) return
   if (typeof value === 'string') {
@@ -522,4 +569,15 @@ export const recommendationsApi = {
     const qs = q.toString()
     return fetchAPI<StrategyWeightHistoryResponse>(`/recommendations/strategy-weight-history${qs ? `?${qs}` : ''}`)
   },
+
+  getCashOptions: () =>
+    fetchAPI<CashOptionPayload>('/recommendations/cash-options', {
+      timeoutMs: 90000,
+    }),
+
+  refreshCashOptions: () =>
+    fetchAPI<CashOptionPayload>('/recommendations/cash-options/refresh', {
+      method: 'POST',
+      timeoutMs: 120000,
+    }),
 }
