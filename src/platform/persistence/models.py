@@ -1508,7 +1508,7 @@ class MCPCallLog(Base):
 
 
 class EtfShareSnapshot(Base):
-    """SSE 披露的单只 ETF 基金份额（清算后，单位：亿份）。"""
+    """沪深交易所披露的单只 ETF 基金份额（清算后，单位：亿份）。"""
 
     __tablename__ = "etf_share_snapshots"
     __table_args__ = (

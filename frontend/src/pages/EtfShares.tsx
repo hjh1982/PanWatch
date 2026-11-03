@@ -86,6 +86,7 @@ interface MarginMetric {
   prior?: number | null
   delta: number | null
   delta_pct: number | null
+  percentile?: number | null
 }
 
 interface CoalStorage {
@@ -200,7 +201,7 @@ function localDateString(): string {
 }
 
 const SERIES_COLORS = ['#e5484d', '#3b82f6', '#f59e0b', '#0ea5a4', '#a855f7']
-const DEFAULT_FOCUS_GROUPS = new Set(['hs300', 'zz500'])
+const DEFAULT_FOCUS_GROUPS = new Set(['hs300', 'zz500', 'cyb50', 'kc50'])
 const MARGIN_METRIC_COLORS: Record<string, string> = {
   rz_balance: '#2563eb',
   rz_buy: '#0ea5e9',
@@ -315,6 +316,23 @@ const GOLD_RESERVES_COLOR = '#eab308'
 const GOLD_RESERVES_CHANGE_COLOR = '#b45309'
 const SCFI_COLOR = '#14b8a6'
 const SCFI_CHANGE_COLOR = '#0f766e'
+const DIVIDEND_YIELD_COLORS: Record<string, string> = {
+  all: '#dc2626',
+  large: '#2563eb',
+  mid: '#f59e0b',
+  small: '#8b5cf6',
+  bond10y: '#64748b',
+  spread: '#059669',
+}
+const DIVIDEND_YIELD_SERIES = ['all', 'large', 'mid', 'small'] as const
+const DIVIDEND_YIELD_METRIC_KEYS = {
+  all: 'etfShares.dividendYield.metrics.all',
+  large: 'etfShares.dividendYield.metrics.large',
+  mid: 'etfShares.dividendYield.metrics.mid',
+  small: 'etfShares.dividendYield.metrics.small',
+  bond10y: 'etfShares.dividendYield.metrics.bond10y',
+  spread: 'etfShares.dividendYield.metrics.spread',
+} as const
 const HYDROPOWER_ACCENT = '#0ea5e9'
 const HYDROPOWER_UDONGDE_COLOR = '#0284c7'
 const HYDROPOWER_THREE_GORGES_COLOR = '#7c3aed'
@@ -343,6 +361,8 @@ const YEAR_COLORS = ['#94a3b8', '#8b5cf6', '#3b82f6', '#f59e0b', '#059669']
 const GROUP_LABEL_KEYS = {
   hs300: 'etfShares.groups.hs300',
   zz500: 'etfShares.groups.zz500',
+  cyb50: 'etfShares.groups.cyb50',
+  kc50: 'etfShares.groups.kc50',
   margin: 'etfShares.groups.margin',
   coalPrice: 'etfShares.groups.coalPrice',
   coalMonthly: 'etfShares.groups.coalMonthly',
@@ -350,6 +370,7 @@ const GROUP_LABEL_KEYS = {
   globalCoal: 'etfShares.groups.globalCoal',
   autoSales: 'etfShares.groups.autoSales',
   usM2Gold: 'etfShares.groups.usM2Gold',
+  dividendYield: 'etfShares.groups.dividendYield',
   usCompare: 'etfShares.groups.usCompare',
   aluminum: 'etfShares.groups.aluminum',
   aluminumInventory: 'etfShares.groups.aluminumInventory',
@@ -5182,6 +5203,205 @@ function HydropowerDashboard({ data }: { data: MetricsPayload }) {
   )
 }
 
+function DividendYieldDashboard({ data }: { data: MetricsPayload }) {
+  const { t } = useTranslation('configuration')
+  const metricMap = useMemo(
+    () => new Map(data.metrics.map((metric) => [metric.id, metric])),
+    [data.metrics],
+  )
+  const yieldSeries: ChartSeries[] = DIVIDEND_YIELD_SERIES.filter((key) =>
+    data.series[key]?.some((value) => typeof value === 'number'),
+  ).map((key) => ({
+    code: key,
+    name: t(DIVIDEND_YIELD_METRIC_KEYS[key]),
+    color: DIVIDEND_YIELD_COLORS[key],
+    values: data.series[key] ?? [],
+  }))
+  if (data.series.bond10y?.some((value) => typeof value === 'number')) {
+    yieldSeries.push({
+      code: 'bond10y',
+      name: t(DIVIDEND_YIELD_METRIC_KEYS.bond10y),
+      color: DIVIDEND_YIELD_COLORS.bond10y,
+      values: data.series.bond10y,
+      dashed: true,
+    })
+  }
+  const spreadSeries: ChartSeries[] = data.series.spread
+    ? [
+        {
+          code: 'spread',
+          name: t(DIVIDEND_YIELD_METRIC_KEYS.spread),
+          color: DIVIDEND_YIELD_COLORS.spread,
+          values: data.series.spread,
+        },
+      ]
+    : []
+  const cards = [
+    { id: 'all', metric: metricMap.get('all'), unit: '%' },
+    { id: 'large', metric: metricMap.get('large'), unit: '%' },
+    { id: 'bond10y', metric: metricMap.get('bond10y'), unit: '%' },
+    { id: 'spread', metric: metricMap.get('spread'), unit: 'pp' },
+  ] as const
+  const sources = data.sources ?? []
+  const dateTick = (day: string) => day.slice(2, 7)
+  const percentileText = (metric?: MarginMetric) =>
+    typeof metric?.percentile === 'number'
+      ? t('etfShares.dividendYield.stats.percentile', {
+          value: Math.round(metric.percentile),
+        })
+      : ''
+
+  return (
+    <div className="space-y-4">
+      <section className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+        {cards.map((card) => {
+          const color = DIVIDEND_YIELD_COLORS[card.id]
+          return (
+            <div
+              key={card.id}
+              className="relative overflow-hidden rounded-xl border border-border/60 bg-card/60 p-3"
+            >
+              <span
+                className="absolute inset-y-0 left-0 w-0.5"
+                style={{ backgroundColor: color }}
+              />
+              <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                <span
+                  className="h-2.5 w-1 rounded-sm"
+                  style={{ backgroundColor: color }}
+                />
+                <span className="truncate">
+                  {t(DIVIDEND_YIELD_METRIC_KEYS[card.id])}
+                </span>
+              </div>
+              <div className="mt-1.5 flex items-baseline gap-1">
+                <span className="font-mono text-[19px] font-bold leading-none text-foreground md:text-[21px]">
+                  {formatValue(card.metric?.latest ?? null, 2)}
+                </span>
+                <span className="shrink-0 text-[10px] text-muted-foreground">
+                  {card.unit}
+                </span>
+              </div>
+              <div className="mt-1.5 text-[10px] text-muted-foreground/80">
+                {percentileText(card.metric)}
+              </div>
+              <div
+                className={`mt-0.5 font-mono text-[10px] ${marketSignTextClass(card.metric?.delta ?? null)}`}
+              >
+                {t('etfShares.dividendYield.stats.thirtyDay')}{' '}
+                {formatDelta(card.metric?.delta ?? null, 2)}
+                {t('etfShares.dividendYield.units.pp')}
+              </div>
+            </div>
+          )
+        })}
+      </section>
+
+      <section className="card overflow-hidden">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border/60 px-4 py-2.5">
+          <span
+            className="h-4 w-1 rounded"
+            style={{ backgroundColor: DIVIDEND_YIELD_COLORS.all }}
+          />
+          <h2 className="text-[13px] font-semibold">
+            {t('etfShares.dividendYield.charts.yieldTitle')}
+          </h2>
+          <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+            {t('etfShares.dividendYield.charts.daily')}
+          </span>
+          {data.as_of && (
+            <span className="ml-auto font-mono text-[11px] text-muted-foreground">
+              {data.as_of}
+            </span>
+          )}
+        </div>
+        <div className="px-2 pb-2 pt-3 md:px-4">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2 px-1">
+            <p className="text-[11px] text-muted-foreground/80">
+              {t('etfShares.dividendYield.charts.yieldHint')}
+            </p>
+            <ChartLegend items={yieldSeries} />
+          </div>
+          <ShareChart
+            dates={data.dates}
+            series={yieldSeries}
+            emptyText={t('etfShares.dividendYield.charts.empty')}
+            unitLabel={t('etfShares.dividendYield.charts.yUnit')}
+            ariaLabel={t('etfShares.dividendYield.charts.yieldTitle')}
+            labelByName
+            valueUnit="%"
+            valueDigits={2}
+            sortTooltip={false}
+            xTickFormat={dateTick}
+          />
+        </div>
+      </section>
+
+      <section className="card overflow-hidden">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border/60 px-4 py-2.5">
+          <span
+            className="h-4 w-1 rounded"
+            style={{ backgroundColor: DIVIDEND_YIELD_COLORS.spread }}
+          />
+          <h2 className="text-[13px] font-semibold">
+            {t('etfShares.dividendYield.charts.spreadTitle')}
+          </h2>
+          <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+            {t('etfShares.dividendYield.charts.daily')}
+          </span>
+          <span className="text-[11px] text-muted-foreground">
+            {t('etfShares.dividendYield.charts.spreadHint')}
+          </span>
+        </div>
+        <div className="px-2 pb-2 pt-3 md:px-4">
+          <ShareChart
+            dates={data.dates}
+            series={spreadSeries}
+            emptyText={t('etfShares.dividendYield.charts.empty')}
+            unitLabel={t('etfShares.dividendYield.charts.spreadYUnit')}
+            ariaLabel={t('etfShares.dividendYield.charts.spreadTitle')}
+            labelByName
+            valueUnit="pp"
+            valueDigits={2}
+            sortTooltip={false}
+            zeroBased
+            xTickFormat={dateTick}
+          />
+        </div>
+        <div className="space-y-2 border-t border-border/60 px-4 py-3">
+          <div className="text-[11px] font-medium text-muted-foreground">
+            {t('etfShares.dividendYield.sourcesTitle')}
+          </div>
+          <ul className="space-y-1 text-[11px] text-muted-foreground/80">
+            {sources.map((source) => (
+              <li key={source.id} className="flex flex-wrap gap-x-1.5">
+                <span>{source.name}</span>
+                <span>· {source.cadence}</span>
+                {source.start && (
+                  <span>
+                    · {t('etfShares.dividendYield.since', { date: source.start })}
+                  </span>
+                )}
+                {source.latest && (
+                  <span>
+                    · {t('etfShares.dividendYield.latest', { date: source.latest })}
+                  </span>
+                )}
+                {!source.latest && (
+                  <span>· {t('etfShares.dividendYield.noSourceData')}</span>
+                )}
+              </li>
+            ))}
+          </ul>
+          <p className="text-[11px] text-muted-foreground/80">
+            {t('etfShares.dividendYield.caveat')}
+          </p>
+        </div>
+      </section>
+    </div>
+  )
+}
+
 function UsCompareDashboard() {
   const { t } = useTranslation('configuration')
   const { toast } = useToast()
@@ -5722,6 +5942,8 @@ function EtfSharesPage() {
 
   const groups = catalog?.groups ?? []
   const activeGroup = groups.find((group) => group.id === groupId) ?? null
+  const isCyb50Group = activeGroup?.id === 'cyb50'
+  const isKc50Group = activeGroup?.id === 'kc50'
   const isMarginGroup = activeGroup?.id === 'margin'
   const isCoalGroup = activeGroup?.id === 'coalPrice'
   const isCoalMonthlyGroup = activeGroup?.id === 'coalMonthly'
@@ -5735,8 +5957,13 @@ function EtfSharesPage() {
   const isGoldReservesGroup = activeGroup?.id === 'goldReserves'
   const isScfiGroup = activeGroup?.id === 'scfi'
   const isHydropowerGroup = activeGroup?.id === 'hydropower'
+  const isDividendYieldGroup = activeGroup?.id === 'dividendYield'
   const isUsCompareGroup = activeGroup?.id === 'usCompare'
-  const pageTitle = isCoalGroup
+  const pageTitle = isCyb50Group
+    ? t('etfShares.cyb50.title')
+    : isKc50Group
+      ? t('etfShares.kc50.title')
+      : isCoalGroup
     ? t('etfShares.coal.title')
     : isCoalMonthlyGroup
       ? t('etfShares.coalMonthly.title')
@@ -5748,6 +5975,8 @@ function EtfSharesPage() {
             ? t('etfShares.autoSales.title')
             : isUsM2GoldGroup
               ? t('etfShares.usM2Gold.title')
+              : isDividendYieldGroup
+                ? t('etfShares.dividendYield.title')
               : isGoldReservesGroup
                 ? t('etfShares.goldReserves.title')
                 : isScfiGroup
@@ -5765,7 +5994,11 @@ function EtfSharesPage() {
                   : isMarginGroup
                     ? t('etfShares.margin.title')
                     : t('etfShares.title')
-  const pageBadge = isCoalGroup
+  const pageBadge = isCyb50Group
+    ? t('etfShares.cyb50.badge')
+    : isKc50Group
+      ? t('etfShares.kc50.badge')
+      : isCoalGroup
     ? t('etfShares.coal.badge')
     : isCoalMonthlyGroup
       ? t('etfShares.coalMonthly.badge')
@@ -5777,6 +6010,8 @@ function EtfSharesPage() {
             ? t('etfShares.autoSales.badge')
             : isUsM2GoldGroup
               ? t('etfShares.usM2Gold.badge')
+              : isDividendYieldGroup
+                ? t('etfShares.dividendYield.badge')
               : isGoldReservesGroup
                 ? t('etfShares.goldReserves.badge')
                 : isScfiGroup
@@ -5794,7 +6029,11 @@ function EtfSharesPage() {
                   : isMarginGroup
                     ? t('etfShares.margin.badge')
                     : t('etfShares.badge')
-  const pageSubtitle = isCoalGroup
+  const pageSubtitle = isCyb50Group
+    ? t('etfShares.cyb50.subtitle')
+    : isKc50Group
+      ? t('etfShares.kc50.subtitle')
+      : isCoalGroup
     ? t('etfShares.coal.subtitle')
     : isCoalMonthlyGroup
       ? t('etfShares.coalMonthly.subtitle')
@@ -5806,6 +6045,8 @@ function EtfSharesPage() {
             ? t('etfShares.autoSales.subtitle')
             : isUsM2GoldGroup
               ? t('etfShares.usM2Gold.subtitle')
+              : isDividendYieldGroup
+                ? t('etfShares.dividendYield.subtitle')
               : isGoldReservesGroup
                 ? t('etfShares.goldReserves.subtitle')
                 : isScfiGroup
@@ -5839,6 +6080,8 @@ function EtfSharesPage() {
             ? t('etfShares.autoSales.loading')
             : isUsM2GoldGroup
               ? t('etfShares.usM2Gold.loading')
+              : isDividendYieldGroup
+                ? t('etfShares.dividendYield.loading')
               : isGoldReservesGroup
                 ? t('etfShares.goldReserves.loading')
                 : isScfiGroup
@@ -5868,6 +6111,8 @@ function EtfSharesPage() {
             ? t('etfShares.autoSales.noData')
             : isUsM2GoldGroup
               ? t('etfShares.usM2Gold.noData')
+              : isDividendYieldGroup
+                ? t('etfShares.dividendYield.noData')
               : isGoldReservesGroup
                 ? t('etfShares.goldReserves.noData')
                 : isScfiGroup
@@ -5993,6 +6238,10 @@ function EtfSharesPage() {
                   ? t('etfShares.usM2Gold.updatedCount', {
                       count: curve.coverage.trading_days,
                     })
+                  : isDividendYieldGroup
+                    ? t('etfShares.dividendYield.updatedCount', {
+                        count: curve.coverage.trading_days,
+                      })
                   : isGoldReservesGroup
                     ? t('etfShares.goldReserves.updatedCount', {
                         count: curve.coverage.trading_days,
@@ -6053,6 +6302,7 @@ function EtfSharesPage() {
                 !isCoalPowerProfitGroup &&
                 !isAutoSalesGroup &&
                 !isUsM2GoldGroup &&
+                !isDividendYieldGroup &&
                 !isGoldReservesGroup &&
                 !isScfiGroup &&
                 !isHydropowerGroup &&
@@ -6175,6 +6425,8 @@ function EtfSharesPage() {
             <ScfiDashboard data={metricsCurve} />
           ) : isHydropowerGroup && metricsCurve ? (
             <HydropowerDashboard data={metricsCurve} />
+          ) : isDividendYieldGroup && metricsCurve ? (
+            <DividendYieldDashboard data={metricsCurve} />
           ) : !hasData ? (
             <section className="card flex h-[320px] flex-col items-center justify-center gap-2 px-6 text-center">
               <p className="text-[13px] text-muted-foreground">{noDataText}</p>

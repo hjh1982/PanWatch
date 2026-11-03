@@ -40,6 +40,28 @@ const catalog = {
       ],
     },
     {
+      id: 'cyb50',
+      label: '创业板50 ETF',
+      category: 'broad',
+      available: true,
+      accent: '#16a34a',
+      funds: [
+        { code: '159949', name: '创业板50ETF华安' },
+        { code: '159682', name: '创业板50ETF景顺' },
+      ],
+    },
+    {
+      id: 'kc50',
+      label: '科创50 ETF',
+      category: 'broad',
+      available: true,
+      accent: '#7c3aed',
+      funds: [
+        { code: '588000', name: '科创50ETF华夏' },
+        { code: '588080', name: '科创50ETF易方达' },
+      ],
+    },
+    {
       id: 'margin',
       label: '融资融券',
       category: 'broad',
@@ -101,6 +123,14 @@ const catalog = {
       category: 'macro',
       available: true,
       accent: '#b45309',
+      funds: [],
+    },
+    {
+      id: 'dividendYield',
+      label: 'A股股息率',
+      category: 'macro',
+      available: true,
+      accent: '#ca8a04',
       funds: [],
     },
     {
@@ -181,6 +211,27 @@ const zz500Curve = {
   as_of: '2026-10-21',
   dates,
   funds: [fund('510500', '中证500ETF南方', 60.997686, -0.108)],
+  coverage: { trading_days: 90, target: 90, complete: true },
+}
+
+const cyb50Curve = {
+  group: 'cyb50',
+  group_label: '创业板50 ETF',
+  as_of: '2026-10-21',
+  dates,
+  funds: [
+    fund('159949', '创业板50ETF华安', 230.367898, 5.032),
+    fund('159682', '创业板50ETF景顺', 39.053077, 0.4),
+  ],
+  coverage: { trading_days: 90, target: 90, complete: true },
+}
+
+const kc50Curve = {
+  group: 'kc50',
+  group_label: '科创50 ETF',
+  as_of: '2026-10-21',
+  dates,
+  funds: [fund('588000', '科创50ETF华夏', 900.686682, -3.2)],
   coverage: { trading_days: 90, target: 90, complete: true },
 }
 
@@ -646,6 +697,85 @@ const scfiCurve = {
   ],
 }
 
+const dividendYieldCurve = {
+  group: 'dividendYield',
+  group_label: 'A股股息率',
+  scope: 'A股整体与大小盘风格股息率、10年期国债收益率及利差（近5年）',
+  as_of: '2026-10-30',
+  dates: ['2026-09-30', '2026-10-29', '2026-10-30'],
+  metrics: [
+    {
+      id: 'all',
+      label: '全A股息率',
+      unit: '%',
+      latest: 1.84,
+      latest_date: '2026-10-30',
+      prior: 1.7,
+      delta: 0.14,
+      delta_pct: 8.2353,
+      percentile: 69.2,
+    },
+    {
+      id: 'large',
+      label: '大盘股息率',
+      unit: '%',
+      latest: 2.62,
+      latest_date: '2026-10-30',
+      prior: 2.37,
+      delta: 0.25,
+      delta_pct: 10.5485,
+      percentile: 62.2,
+    },
+    {
+      id: 'bond10y',
+      label: '10年期国债收益率',
+      unit: '%',
+      latest: 1.65,
+      latest_date: '2026-10-30',
+      prior: 1.68,
+      delta: -0.03,
+      delta_pct: -1.7857,
+      percentile: 5.1,
+    },
+    {
+      id: 'spread',
+      label: '股息率-国债利差',
+      unit: 'pp',
+      latest: 0.19,
+      latest_date: '2026-10-30',
+      prior: -0.06,
+      delta: 0.25,
+      delta_pct: null,
+      percentile: 90.6,
+    },
+  ],
+  series: {
+    all: [1.7, 1.8, 1.84],
+    large: [2.5, 2.6, 2.62],
+    bond10y: [1.7, 1.7, 1.65],
+    spread: [0, 0.1, 0.19],
+  },
+  coverage: { trading_days: 3, target: 3, complete: true },
+  sources: [
+    {
+      id: 'swsresearch',
+      name: '申万宏源研究 · 指数分析',
+      url: 'https://www.swsresearch.com/institute-sw/api/index_analysis/index_analysis_report/',
+      cadence: '日度',
+      start: '2021-10-27',
+      latest: '2026-10-30',
+    },
+    {
+      id: 'eastmoney',
+      name: '东方财富 · 中美国债收益率',
+      url: 'https://data.eastmoney.com/cjsj/zmgzsyl.html',
+      cadence: '日度',
+      start: '2021-10-27',
+      latest: '2026-10-30',
+    },
+  ],
+}
+
 const hydropowerCurve = {
   group: 'hydropower',
   group_label: '长电来水发电',
@@ -843,6 +973,8 @@ beforeEach(() => {
       return Promise.resolve({ date: '2026-10-14', price: 1020 })
     }
     if (path.includes('/curve?group=zz500')) return Promise.resolve(zz500Curve)
+    if (path.includes('/curve?group=cyb50')) return Promise.resolve(cyb50Curve)
+    if (path.includes('/curve?group=kc50')) return Promise.resolve(kc50Curve)
     if (path.includes('/curve?group=margin')) return Promise.resolve(marginCurve)
     if (path.includes('/curve?group=aluminumInventory')) {
       return Promise.resolve(inventoryCurve)
@@ -858,6 +990,9 @@ beforeEach(() => {
     }
     if (path.includes('/curve?group=usM2Gold')) {
       return Promise.resolve(usM2GoldCurve)
+    }
+    if (path.includes('/curve?group=dividendYield')) {
+      return Promise.resolve(dividendYieldCurve)
     }
     if (path.includes('/curve?group=goldReserves')) {
       return Promise.resolve(goldReservesCurve)
@@ -947,6 +1082,32 @@ describe('ETF share tracker page', () => {
     ).toBeTruthy()
     expect(vi.mocked(fetchAPI)).toHaveBeenCalledWith(
       expect.stringContaining('group=zz500'),
+      expect.anything(),
+    )
+  })
+
+  it('switches to ChiNext 50 and STAR 50 groups', async () => {
+    const user = userEvent.setup()
+    render(<EtfSharesPage />)
+    await screen.findAllByText('沪深300ETF华泰柏瑞')
+
+    await user.click(screen.getAllByRole('button', { name: '创业板50 ETF' })[0])
+
+    expect((await screen.findAllByRole('heading', { name: '创业板50 ETF' })).length).toBeGreaterThan(0)
+    expect(screen.getAllByText('深交所 · 创业板50').length).toBeGreaterThan(0)
+    expect((await screen.findAllByText('创业板50ETF华安')).length).toBeGreaterThan(0)
+    expect(vi.mocked(fetchAPI)).toHaveBeenCalledWith(
+      expect.stringContaining('group=cyb50'),
+      expect.anything(),
+    )
+
+    await user.click(screen.getAllByRole('button', { name: '科创50 ETF' })[0])
+
+    expect((await screen.findAllByRole('heading', { name: '科创50 ETF' })).length).toBeGreaterThan(0)
+    expect(screen.getAllByText('上交所 · 科创50').length).toBeGreaterThan(0)
+    expect((await screen.findAllByText('科创50ETF华夏')).length).toBeGreaterThan(0)
+    expect(vi.mocked(fetchAPI)).toHaveBeenCalledWith(
+      expect.stringContaining('group=kc50'),
       expect.anything(),
     )
   })
@@ -1482,6 +1643,49 @@ describe('ETF share tracker page', () => {
         .mocked(fetchAPI)
         .mock.calls.some((call) => String(call[0]).includes('group=plannedDemo')),
     ).toBe(false)
+  })
+
+  it('renders the A-share dividend yield dashboard', async () => {
+    const user = userEvent.setup()
+    render(<EtfSharesPage />)
+    await screen.findAllByText('沪深300ETF华泰柏瑞')
+
+    await user.click(screen.getAllByRole('button', { name: 'A股股息率' })[0])
+
+    expect(
+      await screen.findByRole('heading', { name: 'A股股息率' }),
+    ).toBeTruthy()
+    expect(screen.getByText('申万宏源 · 日度')).toBeTruthy()
+    expect(screen.getAllByText('1.84').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('2.62').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('1.65').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('0.19').length).toBeGreaterThan(0)
+    expect(screen.getByText('近5年 69% 分位')).toBeTruthy()
+    expect(screen.getByText('近5年 5% 分位')).toBeTruthy()
+    expect(screen.getByText('近5年 91% 分位')).toBeTruthy()
+    expect(screen.getAllByText('较30天前 +0.14pp').length).toBeGreaterThan(0)
+    expect(
+      screen.getByRole('img', { name: 'A股股息率走势' }),
+    ).toBeTruthy()
+    expect(
+      screen.getByRole('img', { name: '全A股息率与10年期国债利差' }),
+    ).toBeTruthy()
+    expect(
+      screen.getByText(/申万宏源研究 · 指数分析/),
+    ).toBeTruthy()
+    expect(
+      screen.getByText(/东方财富 · 中美国债收益率/),
+    ).toBeTruthy()
+    expect(screen.getByText(/（共 3 个交易日）/)).toBeTruthy()
+    expect(screen.getAllByText(/最新 2026-10-30/).length).toBeGreaterThan(0)
+    expect(screen.queryByRole('combobox', { name: '近 90 个交易日' })).toBeNull()
+    expect(
+      vi
+        .mocked(fetchAPI)
+        .mock.calls.some((call) =>
+          String(call[0]).endsWith('group=dividendYield&days=90'),
+        ),
+    ).toBe(true)
   })
 
   it('renders the SCFI container freight dashboard', async () => {

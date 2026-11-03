@@ -559,6 +559,8 @@ export const configuration = {
     groups: {
       hs300: 'CSI 300 ETF',
       zz500: 'CSI 500 ETF',
+      cyb50: 'ChiNext 50 ETF',
+      kc50: 'STAR 50 ETF',
       margin: 'Margin financing',
       coalPrice: 'Coal prices',
       coalMonthly: 'Coal output & profit',
@@ -566,6 +568,7 @@ export const configuration = {
       globalCoal: 'Global coal prices',
       autoSales: 'China passenger car sales',
       usM2Gold: 'U.S. M2 vs gold',
+      dividendYield: 'A-share dividend yield',
       usCompare: 'U.S. returns comparison',
       aluminum: 'Aluminum & alumina',
       aluminumInventory: 'Aluminum ingot inventory',
@@ -573,6 +576,16 @@ export const configuration = {
       scfi: 'Container freight rate SCFI',
       hydropower: 'Yangtze hydropower output',
       threeGorges: 'Three Gorges water level',
+    },
+    cyb50: {
+      title: 'ChiNext 50 ETF',
+      badge: 'SZSE · ChiNext 50',
+      subtitle: 'Shenzhen Stock Exchange · fund scale (post-settlement)',
+    },
+    kc50: {
+      title: 'STAR 50 ETF',
+      badge: 'SSE · STAR 50',
+      subtitle: 'Shanghai Stock Exchange · fund scale (post-settlement)',
     },
     chart: {
       title: 'Total shares (all funds)',
@@ -863,6 +876,46 @@ export const configuration = {
       caveat:
         'Scope: M2 is the Fed H.6 seasonally adjusted monthly series (via DBnomics), originally in billions of USD and converted to trillions here; gold is the Gold column of the World Bank Commodity Markets Pink Sheet, the London market monthly average in USD per troy ounce. Both series are aligned by calendar month with no gap filling; official monthly data usually lag by 1–2 months.',
     },
+    dividendYield: {
+      title: 'A-share dividend yield',
+      badge: 'SWS Research · Daily',
+      subtitle:
+        'A-share overall and size-style dividend yields versus the 10-year China government bond yield (5 years)',
+      loading: 'Loading A-share dividend yield data…',
+      noData:
+        'The data source returned no dividend yield data. Refresh and try again.',
+      updatedCount: ' ({{count}} trading days)',
+      units: { percent: '%', pp: 'pp', days: 'trading days' },
+      metrics: {
+        all: 'All A-shares',
+        large: 'Large cap',
+        mid: 'Mid cap',
+        small: 'Small cap',
+        bond10y: '10Y CGB yield',
+        spread: 'Yield minus CGB',
+      },
+      stats: {
+        percentile: '5y percentile: {{value}}%',
+        thirtyDay: 'vs 30 days ago',
+      },
+      charts: {
+        daily: 'Daily',
+        yieldTitle: 'A-share dividend yield trend',
+        yieldHint:
+          'SWS aggregate method; the 10-year CGB yield is shown as a dashed line',
+        spreadTitle: 'All A-share dividend yield minus 10Y CGB',
+        spreadHint: 'Positive means the dividend yield exceeds the risk-free rate',
+        yUnit: '%',
+        spreadYUnit: 'pp',
+        empty: 'No dividend yield data',
+      },
+      sourcesTitle: 'Sources',
+      since: 'From {{date}}',
+      latest: 'Latest {{date}}',
+      noSourceData: 'No data',
+      caveat:
+        'Scope: dividend yields are the dp field in SWS Research index analysis, the aggregate dividend yield of the SWS All A-share and large/mid/small-cap style indices (based on total shares of constituents), in %. The 10-year China government bond yield comes from Eastmoney’s China-U.S. Treasury yield series, in %, with the latest published value carried forward on non-trading days. Spread = all A-share dividend yield − 10-year CGB yield, in percentage points (pp). SWS methodology can differ from the total-share/calculation-share measures on the CSI website; index rebalancing and dividend implementation can cause daily jumps.',
+    },
     goldReserves: {
       title: 'Gold reserves',
       badge: 'SAFE · Monthly',
@@ -1114,6 +1167,6 @@ export const configuration = {
         empty: 'No Three Gorges reservoir data',
       },
     },
-    caveat: 'Scope: shares come from the exchange-disclosed fund scale (post-settlement) for Shanghai-listed ETFs only. Rising shares indicate net subscriptions; falling shares indicate net redemptions.',
+    caveat: 'Scope: shares come from exchange-disclosed fund scale (post-settlement) on the Shanghai and Shenzhen exchanges. Rising shares indicate net subscriptions; falling shares indicate net redemptions.',
   },
 } as const satisfies TranslationShape<typeof zhConfiguration>

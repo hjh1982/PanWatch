@@ -1,4 +1,4 @@
-"""ETF 份额追踪：同步上交所披露的基金规模并生成份额曲线。"""
+"""ETF 份额追踪：同步沪深交易所披露的基金规模并生成份额曲线。"""
 
 from __future__ import annotations
 
@@ -7,8 +7,11 @@ import threading
 import time
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
+from io import BytesIO
 from typing import Any
 from zoneinfo import ZoneInfo
+
+from openpyxl import load_workbook
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -28,6 +31,15 @@ _SSE_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
         "(KHTML, like Gecko) Chrome/88.0.4324.150 Safari/537.36"
+    ),
+}
+_SZSE_URL = "https://www.szse.cn/api/report/ShowReport"
+_SZSE_CATALOG_ID = "scsj_fund_jjgm"
+_SZSE_HEADERS = {
+    "Referer": "https://www.szse.cn/market/fund/volume/etf/index.html",
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36"
     ),
 }
 _DEFAULT_DAYS = 90
@@ -51,6 +63,7 @@ class GroupDef:
     accent: str
     funds: tuple[FundDef, ...] = ()
     available: bool = True
+    venue: str = "SSE"
 
 
 GROUPS: tuple[GroupDef, ...] = (
@@ -78,6 +91,33 @@ GROUPS: tuple[GroupDef, ...] = (
             FundDef("510580", "中证500ETF易方达"),
             FundDef("512500", "中证500ETF华夏"),
             FundDef("512510", "中证500ETF华泰柏瑞"),
+        ),
+    ),
+    GroupDef(
+        id="cyb50",
+        label="创业板50 ETF",
+        category="broad",
+        accent="#16a34a",
+        venue="SZSE",
+        funds=(
+            FundDef("159949", "创业板50ETF华安"),
+            FundDef("159682", "创业板50ETF景顺"),
+            FundDef("159681", "创业板50ETF鹏华"),
+            FundDef("159369", "创业板50ETF易方达"),
+            FundDef("159375", "创业板50ETF国泰"),
+        ),
+    ),
+    GroupDef(
+        id="kc50",
+        label="科创50 ETF",
+        category="broad",
+        accent="#7c3aed",
+        funds=(
+            FundDef("588000", "科创50ETF华夏"),
+            FundDef("588080", "科创50ETF易方达"),
+            FundDef("588050", "科创50ETF工银"),
+            FundDef("588090", "科创50ETF华泰柏瑞"),
+            FundDef("588180", "科创50ETF国联安"),
         ),
     ),
     GroupDef(
@@ -129,6 +169,12 @@ GROUPS: tuple[GroupDef, ...] = (
         accent="#b45309",
     ),
     GroupDef(
+        id="dividendYield",
+        label="A股股息率",
+        category="macro",
+        accent="#ca8a04",
+    ),
+    GroupDef(
         id="aluminum",
         label="电解铝·氧化铝",
         category="commodity",
@@ -167,6 +213,9 @@ GROUPS: tuple[GroupDef, ...] = (
 )
 _GROUP_BY_ID = {group.id: group for group in GROUPS}
 _KNOWN_CODES = frozenset(fund.code for group in GROUPS for fund in group.funds)
+_SZSE_CODES = frozenset(
+    fund.code for group in GROUPS if group.venue == "SZSE" for fund in group.funds
+)
 
 
 @dataclass(slots=True)
@@ -273,6 +322,92 @@ def fetch_sse_day(trade_date: str) -> DayFetch | None:
     return result
 
 
+def _szse_date(value: Any) -> str | None:
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    text = str(value or "").strip()[:10].replace("/", "-")
+    try:
+        return date.fromisoformat(text).isoformat()
+    except ValueError:
+        return None
+
+
+def parse_szse_workbook(content: bytes) -> list[dict[str, Any]]:
+    """解析深交所基金规模日报（xlsx），份额由份换算为亿份。"""
+    workbook = load_workbook(BytesIO(content), data_only=True)
+    sheet = workbook[workbook.sheetnames[0]]
+    rows_iter = sheet.iter_rows(values_only=True)
+    header = next(rows_iter, None)
+    if not header:
+        return []
+    columns = {str(value).strip(): index for index, value in enumerate(header) if value}
+    try:
+        date_idx = columns["日期"]
+        code_idx = columns["基金代码"]
+        name_idx = columns["基金简称"]
+        shares_idx = columns["基金规模(份)"]
+    except KeyError:
+        logger.warning("[ETF份额] 深交所报表表头不可用: %s", header)
+        return []
+
+    parsed: list[dict[str, Any]] = []
+    for raw in rows_iter:
+        if not raw:
+            continue
+        code = str(raw[code_idx] or "").strip()
+        if code not in _SZSE_CODES:
+            continue
+        trade_date = _szse_date(raw[date_idx])
+        try:
+            shares = float(str(raw[shares_idx]).replace(",", ""))
+        except (TypeError, ValueError):
+            continue
+        if trade_date is None or shares <= 0:
+            continue
+        parsed.append(
+            {
+                "trade_date": trade_date,
+                "code": code,
+                "name": str(raw[name_idx] or "").strip(),
+                "shares_yi": round(shares / 100_000_000, 6),
+            }
+        )
+    return parsed
+
+
+def fetch_szse_range(start: str, end: str) -> list[dict[str, Any]] | None:
+    params = {
+        "SHOWTYPE": "xlsx",
+        "CATALOGID": _SZSE_CATALOG_ID,
+        "TABKEY": "tab1",
+        "txtStart": start,
+        "txtEnd": end,
+        "jjlb": "ETF",
+        "random": str(time.time()),
+    }
+    content = market_get(
+        _SZSE_URL,
+        host_key="www.szse.cn",
+        params=params,
+        headers=_SZSE_HEADERS,
+        parse="content",
+        timeout=30,
+        retries=1,
+        total_timeout=90,
+        min_interval_s=1.0,
+        log_label=f"ETF份额 SZSE {start}~{end}",
+    )
+    if not content:
+        return None
+    try:
+        return parse_szse_workbook(content)
+    except Exception:
+        logger.exception("[ETF份额] 深交所 %s~%s 数据解析失败", start, end)
+        return None
+
+
 _write_lock = threading.Lock()
 _attempt_lock = threading.Lock()
 _last_attempt: dict[str, float] = {}
@@ -294,22 +429,7 @@ def _day_is_covered(db: Session, trade_date: str) -> bool:
     return db.get(EtfShareTradeDay, trade_date) is not None
 
 
-def _sync_day(
-    db: Session,
-    trade_date: str,
-    *,
-    force: bool = False,
-) -> bool:
-    """抓取单日数据并落库；返回是否拿到本组基金的有效份额。"""
-    if not force and _day_is_covered(db, trade_date):
-        return False
-    if not _claim_attempt(trade_date, force=force):
-        return False
-
-    result = fetch_sse_day(trade_date)
-    if result is None:
-        return False
-
+def _write_sse_day(db: Session, trade_date: str, result: DayFetch, *, force: bool) -> bool:
     today = today_cn().isoformat()
     if result.total == 0 and trade_date == today:
         # 当日清算数据尚未披露，不写入交易日记录，次日会作为历史日期重新补齐。
@@ -357,6 +477,109 @@ def _sync_day(
     return bool(result.rows)
 
 
+def _sync_day(
+    db: Session,
+    trade_date: str,
+    *,
+    force: bool = False,
+) -> bool:
+    """抓取单日数据并落库；返回是否拿到本组基金的有效份额。"""
+    if not force and _day_is_covered(db, trade_date):
+        return False
+    if not _claim_attempt(trade_date, force=force):
+        return False
+
+    result = fetch_sse_day(trade_date)
+    if result is None:
+        return False
+    return _write_sse_day(db, trade_date, result, force=force)
+
+
+def _group_covered_days(db: Session, group: GroupDef, window: list[str]) -> set[str]:
+    if not window or not group.funds:
+        return set()
+    rows = (
+        db.query(EtfShareSnapshot.trade_date)
+        .filter(
+            EtfShareSnapshot.code.in_([fund.code for fund in group.funds]),
+            EtfShareSnapshot.trade_date >= window[0],
+            EtfShareSnapshot.trade_date <= window[-1],
+        )
+        .distinct()
+        .all()
+    )
+    return {row[0] for row in rows}
+
+
+def _write_szse_rows(db: Session, group: GroupDef, rows: list[dict[str, Any]]) -> bool:
+    codes = {fund.code for fund in group.funds}
+    rows = [row for row in rows if row["code"] in codes]
+    if not rows:
+        return False
+    dates = sorted({row["trade_date"] for row in rows})
+    with _write_lock:
+        try:
+            existing = {
+                (row.trade_date, row.code): row
+                for row in db.query(EtfShareSnapshot)
+                .filter(
+                    EtfShareSnapshot.code.in_(codes),
+                    EtfShareSnapshot.trade_date >= dates[0],
+                    EtfShareSnapshot.trade_date <= dates[-1],
+                )
+                .all()
+            }
+            for item in rows:
+                snapshot = existing.get((item["trade_date"], item["code"]))
+                if snapshot is None:
+                    db.add(
+                        EtfShareSnapshot(
+                            trade_date=item["trade_date"],
+                            code=item["code"],
+                            name=item["name"],
+                            shares_yi=item["shares_yi"],
+                        )
+                    )
+                else:
+                    snapshot.name = item["name"]
+                    snapshot.shares_yi = item["shares_yi"]
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            logger.info("[ETF份额] 深交所窗口数据存在并发写入，跳过本轮")
+        except Exception:
+            db.rollback()
+            logger.exception("[ETF份额] 深交所窗口数据写入失败")
+            return False
+    return True
+
+
+def _sync_szse_for_response(
+    db: Session,
+    group: GroupDef,
+    targets: list[str],
+    *,
+    force: bool,
+) -> None:
+    if not targets:
+        return
+    today = today_cn().isoformat()
+    covered = _group_covered_days(db, group, targets)
+    required = [day for day in targets if day < today]
+    if not force and required and all(day in covered for day in required):
+        return
+
+    if force:
+        start = targets[0]
+    else:
+        missing = [day for day in required if day not in covered]
+        start = missing[0] if missing else targets[-1]
+    rows = fetch_szse_range(start, targets[-1])
+    if rows is None:
+        return
+    _write_szse_rows(db, group, rows)
+
+
 def _group_has_rows(
     db: Session,
     group: GroupDef,
@@ -389,28 +612,28 @@ def _sync_for_response(db: Session, group: GroupDef, targets: list[str], *, forc
             _sync_day(db, prior[-1], force=True)
         return
 
-    if not _group_has_rows(db, group, window=targets):
-        for day in reversed(targets[-5:]):
-            if _sync_day(db, day) and _group_has_rows(db, group, day):
-                break
+    covered = _group_covered_days(db, group, targets)
+    missing = [day for day in prior if day not in covered]
+    if missing and len(covered) < 5:
+        # 首次接入时先同步最近几个缺失交易日；其余历史交给后台补齐。
+        for day in reversed(missing[-5:]):
+            _sync_day(db, day, force=True)
         return
 
     if latest == today and _now_cn().hour < _PUBLISH_HOUR:
-        if prior and not _day_is_covered(db, prior[-1]):
-            _sync_day(db, prior[-1])
         return
 
-    if not _day_is_covered(db, latest):
+    if latest not in covered:
         _sync_day(db, latest)
 
 
-def _backfill_worker(days: tuple[str, ...]) -> None:
+def _backfill_worker(days: tuple[str, ...], group: GroupDef) -> None:
     global _backfill_running, _backfill_blocked_until
     db = SessionLocal()
     failures = 0
     try:
         for day in days:
-            if _day_is_covered(db, day):
+            if _group_covered_days(db, group, [day]):
                 continue
             result = fetch_sse_day(day)
             if result is None:
@@ -420,7 +643,7 @@ def _backfill_worker(days: tuple[str, ...]) -> None:
                     break
                 continue
             failures = 0
-            _sync_day(db, day)
+            _write_sse_day(db, day, result, force=True)
     except Exception:
         logger.exception("[ETF份额] 历史补齐任务异常结束")
     finally:
@@ -431,7 +654,7 @@ def _backfill_worker(days: tuple[str, ...]) -> None:
                 _backfill_blocked_until = time.monotonic() + _BACKFILL_RETRY_S
 
 
-def _start_backfill(days: list[str]) -> None:
+def _start_backfill(days: list[str], group: GroupDef) -> None:
     global _backfill_running
     if not days:
         return
@@ -441,8 +664,8 @@ def _start_backfill(days: list[str]) -> None:
         _backfill_running = True
     thread = threading.Thread(
         target=_backfill_worker,
-        args=(tuple(reversed(days)),),
-        name="etf-share-backfill",
+        args=(tuple(reversed(days)), group),
+        name=f"etf-share-backfill-{group.id}",
         daemon=True,
     )
     thread.start()
@@ -524,13 +747,12 @@ def build_curve_payload(
         )
 
     today = today_cn().isoformat()
-    covered = {
-        row.trade_date
-        for row in db.query(EtfShareTradeDay.trade_date)
-        .filter(EtfShareTradeDay.trade_date.in_(window))
-        .all()
-    }
     required = [day for day in window if day != today]
+    covered = {
+        day
+        for day in required
+        if any(values_by_code.get(code, {}).get(day) is not None for code in codes)
+    }
     complete = all(day in covered for day in required) if required else bool(window)
 
     return {
@@ -558,12 +780,16 @@ def get_curve_payload(
     group = _require_group(group_id)
     targets = target_trade_dates(days)
     if network:
-        _sync_for_response(db, group, targets, force=force)
-        today = today_cn().isoformat()
-        missing = [
-            day
-            for day in targets
-            if day < today and not _day_is_covered(db, day)
-        ]
-        _start_backfill(missing)
+        if group.venue == "SZSE":
+            _sync_szse_for_response(db, group, targets, force=force)
+        else:
+            _sync_for_response(db, group, targets, force=force)
+            today = today_cn().isoformat()
+            covered = _group_covered_days(db, group, targets)
+            missing = [
+                day
+                for day in targets
+                if day < today and day not in covered
+            ]
+            _start_backfill(missing, group)
     return build_curve_payload(db, group_id, days, targets=targets)
