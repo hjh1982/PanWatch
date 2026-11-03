@@ -9,7 +9,7 @@ vi.mock('@panwatch/api/client', () => ({ fetchAPI: vi.fn() }))
 const catalog = {
   default_group: 'hs300',
   default_days: 90,
-  allowed_days: [30, 60, 90, 120],
+  allowed_days: [30, 60, 90, 120, 250],
   groups: [
     {
       id: 'hs300',
@@ -1084,6 +1084,25 @@ describe('ETF share tracker page', () => {
       expect.stringContaining('group=zz500'),
       expect.anything(),
     )
+  })
+
+  it('selects the 250 trading day range', async () => {
+    const user = userEvent.setup()
+    render(<EtfSharesPage />)
+    await screen.findAllByText('沪深300ETF华泰柏瑞')
+
+    await user.click(screen.getByRole('combobox', { name: '近 90 个交易日' }))
+    await user.click(await screen.findByRole('option', { name: '近 250 个交易日' }))
+
+    await waitFor(() => {
+      expect(
+        vi
+          .mocked(fetchAPI)
+          .mock.calls.some((call) =>
+            String(call[0]).endsWith('group=hs300&days=250'),
+          ),
+      ).toBe(true)
+    })
   })
 
   it('switches to ChiNext 50 and STAR 50 groups', async () => {

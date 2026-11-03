@@ -6137,7 +6137,7 @@ function EtfSharesPage() {
     : Boolean(shareCurve && shareCurve.funds.length > 0)
   const fundMetas = activeGroup?.funds ?? []
   const curveFunds = shareCurve?.funds ?? []
-  const rangeOptions = (catalog?.allowed_days ?? [30, 60, 90, 120]).filter(
+  const rangeOptions = (catalog?.allowed_days ?? [30, 60, 90, 120, 250]).filter(
     (value) => value <= 250,
   )
   const rangeLabel = (value: number) =>
@@ -6185,7 +6185,7 @@ function EtfSharesPage() {
 
   const selectGroup = (id: string) => {
     setGroupId(id)
-    const nextOptions = (catalog?.allowed_days ?? [30, 60, 90, 120]).filter(
+    const nextOptions = (catalog?.allowed_days ?? [30, 60, 90, 120, 250]).filter(
       (value) => value <= 250,
     )
     if (!nextOptions.includes(days)) {

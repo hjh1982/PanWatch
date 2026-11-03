@@ -43,7 +43,8 @@ _SZSE_HEADERS = {
     ),
 }
 _DEFAULT_DAYS = 90
-_ALLOWED_DAYS = (30, 60, 90, 120)
+_ALLOWED_DAYS = (30, 60, 90, 120, 250)
+_SZSE_CHUNK_DAYS = 100
 _PUBLISH_HOUR = 16
 _TODAY_RETRY_S = 300
 _BACKFILL_RETRY_S = 60
@@ -554,6 +555,23 @@ def _write_szse_rows(db: Session, group: GroupDef, rows: list[dict[str, Any]]) -
     return True
 
 
+def _szse_chunks(targets: list[str]) -> list[tuple[str, str]]:
+    """按约 100 个自然日切分：深交所接口单次最多返回约 91 个交易日。"""
+    if not targets:
+        return []
+    chunks: list[tuple[str, str]] = []
+    start = targets[0]
+    previous = targets[0]
+    for day in targets[1:]:
+        span = (date.fromisoformat(day) - date.fromisoformat(start)).days
+        if span >= _SZSE_CHUNK_DAYS:
+            chunks.append((start, previous))
+            start = day
+        previous = day
+    chunks.append((start, previous))
+    return chunks
+
+
 def _sync_szse_for_response(
     db: Session,
     group: GroupDef,
@@ -569,15 +587,22 @@ def _sync_szse_for_response(
     if not force and required and all(day in covered for day in required):
         return
 
+    chunks = _szse_chunks(targets)
     if force:
-        start = targets[0]
+        # 手动刷新只重取最近一段，历史份额不会变化。
+        chunks = chunks[-1:]
     else:
-        missing = [day for day in required if day not in covered]
-        start = missing[0] if missing else targets[-1]
-    rows = fetch_szse_range(start, targets[-1])
-    if rows is None:
-        return
-    _write_szse_rows(db, group, rows)
+        missing = {day for day in required if day not in covered}
+        chunks = [
+            (start, end)
+            for start, end in chunks
+            if any(day in missing for day in targets if start <= day <= end)
+        ]
+    for start, end in chunks:
+        rows = fetch_szse_range(start, end)
+        if rows is None:
+            continue
+        _write_szse_rows(db, group, rows)
 
 
 def _group_has_rows(

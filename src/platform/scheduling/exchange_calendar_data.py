@@ -1,10 +1,11 @@
-"""Published 2026 equity-market closures, available without network access.
+"""Published equity-market closures, available without network access.
 
 Update the covered year when exchanges publish their next annual calendars.
 Weekend makeup workdays are never exchange trading days.
 
 Sources:
-CN: https://www.sse.com.cn/disclosure/dealinstruc/closed/c/c_20251222_10802510.shtml
+CN 2025: https://www.sse.com.cn/disclosure/dealinstruc/closed/c/c_20241223_10767110.shtml
+CN 2026: https://www.sse.com.cn/disclosure/dealinstruc/closed/c/c_20251222_10802510.shtml
 HK: https://www.hkex.com.hk/-/media/HKEX-Market/Services/Circulars-and-Notices/Participant-and-Members-Circulars/SEHK/2025/ce_SEHK_CT_075_2025.pdf
 US: https://www.nyse.com/trade/hours-calendars
 """
@@ -23,6 +24,11 @@ def _dates(*ranges: tuple[str, str]) -> frozenset[date]:
 
 
 HOLIDAYS = {
+    ("CN", 2025): _dates(
+        ("2025-01-01", "2025-01-01"), ("2025-01-28", "2025-02-04"),
+        ("2025-04-04", "2025-04-06"), ("2025-05-01", "2025-05-05"),
+        ("2025-05-31", "2025-06-02"), ("2025-10-01", "2025-10-08"),
+    ),
     ("CN", 2026): _dates(
         ("2026-01-01", "2026-01-03"), ("2026-02-15", "2026-02-23"),
         ("2026-04-04", "2026-04-06"), ("2026-05-01", "2026-05-05"),
