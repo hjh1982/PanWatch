@@ -31,6 +31,7 @@ import BenchChart from '@/components/BenchChart'
 import { HoldingAnnouncementsCard, PortfolioCalendarCard } from '@/components/PortfolioEventCards'
 import { formatNumber } from '@/i18n/format'
 import { marketSignTextClass } from '@/lib/market-colors'
+import { useLocalStorage } from '@/lib/utils'
 
 // 弹窗和图片生成代码只在用户打开时下载，不参与首页首屏加载。
 const StockInsightModal = lazy(() => import('@panwatch/biz-ui/components/stock-insight-modal'))
@@ -212,7 +213,7 @@ export default function DashboardPage() {
   const [commodities, setCommodities] = useState<DashboardCommodity[]>([])
   const [fearGreed, setFearGreed] = useState<DashboardFearGreed | null>(null)
   const [fearGreedError, setFearGreedError] = useState(false)
-  const [autoRefresh, setAutoRefresh] = useState(false)
+  const [autoRefresh, setAutoRefresh] = useLocalStorage('panwatch_dashboard_autoRefresh', true)
   const [monitorSnapshot, setMonitorSnapshot] = useState<DashboardMonitorStock[]>([])
   const [diag, setDiag] = useState<PortfolioDiagnostics | null>(null)
   const [bench, setBench] = useState<PortfolioBenchmark | null>(null)

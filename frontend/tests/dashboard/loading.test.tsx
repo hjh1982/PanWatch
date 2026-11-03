@@ -141,6 +141,14 @@ describe('dashboard progressive loading', () => {
     expect(screen.queryByText('区间涨跌')).toBeNull()
   })
 
+  it('enables scheduled refresh by default', async () => {
+    render(<MemoryRouter><DashboardPage /></MemoryRouter>)
+
+    const autoSwitch = await screen.findByRole('switch')
+    expect(autoSwitch.getAttribute('data-state')).toBe('checked')
+    expect(localStorage.getItem('panwatch_dashboard_autoRefresh')).toBe('true')
+  })
+
   it('ignores the old benchmark response after a newer refresh finishes', async () => {
     const oldBenchmark = deferred<typeof benchmark>()
     vi.mocked(portfolioApi.benchmark).mockReturnValueOnce(oldBenchmark.promise)
@@ -151,6 +159,7 @@ describe('dashboard progressive loading', () => {
     vi.mocked(homeApi.alertHitsToday).mockResolvedValue([alertHit])
     vi.mocked(homeApi.todos).mockResolvedValue({ todos: [] })
     vi.mocked(dashboardApi.marketStatus).mockResolvedValue([])
+    localStorage.setItem('panwatch_dashboard_autoRefresh', 'false')
     const { container } = render(<MemoryRouter><DashboardPage /></MemoryRouter>)
     const autoSwitch = screen.getByRole('switch')
     await waitFor(() => expect(dashboardApi.curate).toHaveBeenCalledTimes(1))
