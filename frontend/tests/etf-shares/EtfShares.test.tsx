@@ -78,6 +78,14 @@ const catalog = {
       funds: [],
     },
     {
+      id: 'coalLtc',
+      label: '动力煤月度长协价',
+      category: 'commodity',
+      available: true,
+      accent: '#9a3412',
+      funds: [],
+    },
+    {
       id: 'aluminum',
       label: '电解铝·氧化铝',
       category: 'commodity',
@@ -264,6 +272,69 @@ const coalCurve = {
     database: '/srv/panwatch/data/panwatch.db',
     table: 'coal_price_points',
     seed: '/srv/panwatch/src/modules/market/resources/coal_cci_5500.csv',
+  },
+}
+
+const coalLtcMonths = [
+  '2025-01', '2025-02', '2025-03', '2025-04', '2025-05', '2025-06', '2025-07',
+  '2025-08', '2025-09', '2025-10', '2025-11', '2025-12', '2026-01', '2026-02',
+  '2026-03', '2026-04', '2026-05', '2026-06', '2026-07', '2026-08', '2026-09',
+  '2026-10', '2026-11',
+]
+
+const coalLtcCurve = {
+  group: 'coalLtc',
+  group_label: '动力煤月度长协价',
+  scope: '秦皇岛 5500/5000/4500 大卡',
+  as_of: '2026-11',
+  dates: coalLtcMonths,
+  metrics: [
+    {
+      id: 'ltc_5500',
+      latest: 727,
+      latest_date: '2026-11',
+      delta: 10,
+      delta_pct: 1.3947,
+    },
+    {
+      id: 'ltc_5000',
+      latest: 661,
+      latest_date: '2026-11',
+      delta: 9,
+      delta_pct: 1.3804,
+    },
+    {
+      id: 'ltc_4500',
+      latest: 595,
+      latest_date: '2026-11',
+      delta: 8,
+      delta_pct: 1.3629,
+    },
+  ],
+  series: {
+    ltc_5500: [
+      693, 691, 686, 679, 675, 669, 666, 668, 674, 676, 684, 694, 684, 680, 682,
+      685, 689, 697, 703, 701, 704, 717, 727,
+    ],
+    ltc_5000: [
+      630, 628, 624, 617, 614, 608, 605, 607, 613, 615, 622, 631, 622, 618, 620,
+      623, 626, 634, 639, 637, 640, 652, 661,
+    ],
+    ltc_4500: [
+      567, 565, 561, 556, 552, 547, 545, 547, 551, 553, 560, 568, 560, 556, 558,
+      560, 564, 570, 575, 574, 576, 587, 595,
+    ],
+  },
+  coverage: { trading_days: 23, target: 23, complete: true },
+  storage: {
+    database: '/srv/panwatch/data/panwatch.db',
+    table: 'coal_ltc_points',
+    seed: '/srv/panwatch/src/modules/market/resources/coal_ltc_monthly.csv',
+  },
+  source: {
+    name: 'CCTD 中国煤炭市场网',
+    url: 'https://www.cctd.com.cn/',
+    cadence: '月度',
   },
 }
 
@@ -1003,6 +1074,9 @@ beforeEach(() => {
     if (path.includes('/curve?group=hydropower')) {
       return Promise.resolve(hydropowerCurve)
     }
+    if (path.includes('/curve?group=coalLtc')) {
+      return Promise.resolve(coalLtcCurve)
+    }
     if (path.includes('/us-compare')) {
       const query = new URLSearchParams(String(path).split('?')[1] ?? '')
       const range = query.get('range') ?? 'ytd'
@@ -1472,6 +1546,52 @@ describe('ETF share tracker page', () => {
         .mocked(fetchAPI)
         .mock.calls.some((call) =>
           String(call[0]).endsWith('group=globalCoal&days=90'),
+        ),
+    ).toBe(true)
+  })
+
+  it('renders the thermal coal long-term contract price with this year and last year overlaid', async () => {
+    const user = userEvent.setup()
+    render(<EtfSharesPage />)
+    await screen.findAllByText('沪深300ETF华泰柏瑞')
+
+    await user.click(
+      screen.getAllByRole('button', { name: '动力煤月度长协价' })[0],
+    )
+
+    expect(
+      await screen.findByRole('heading', { name: '动力煤月度长协价' }),
+    ).toBeTruthy()
+    expect(
+      screen.getByRole('heading', { name: '长协价 · 今年 vs 去年' }),
+    ).toBeTruthy()
+    expect(
+      screen.getByRole('img', { name: '长协价 · 今年 vs 去年' }),
+    ).toBeTruthy()
+    expect(screen.getByText(/横轴按月份 1-12 对齐：实线为 2026 年，虚线为上一年 2025 年/)).toBeTruthy()
+    expect(screen.getAllByText('5500 大卡 2025').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('5500 大卡 2026').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('727').length).toBeGreaterThan(0)
+    expect(screen.getByText('5500 大卡长协价')).toBeTruthy()
+    expect(screen.getByText('5000 大卡长协价')).toBeTruthy()
+    expect(screen.getByText('4500 大卡长协价')).toBeTruthy()
+    expect(screen.getByText('共 23 个月')).toBeTruthy()
+    expect(screen.getByText('5500 大卡（元/吨）')).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'CCTD 中国煤炭市场网' })).toBeTruthy()
+    expect(
+      screen.queryByRole('combobox', { name: '近 90 个交易日' }),
+    ).toBeNull()
+
+    await user.click(screen.getByRole('button', { name: '5000 大卡' }))
+
+    expect(screen.getAllByText('5000 大卡 2026').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('661').length).toBeGreaterThan(0)
+
+    expect(
+      vi
+        .mocked(fetchAPI)
+        .mock.calls.some((call) =>
+          String(call[0]).endsWith('group=coalLtc&days=90&full=1'),
         ),
     ).toBe(true)
   })

@@ -11,6 +11,7 @@ from src.modules.market import (
     aluminum_inventory_service,
     aluminum_service,
     auto_sales_service,
+    coal_ltc_service,
     coal_monthly_service,
     coal_price_service,
     dividend_yield_service,
@@ -49,6 +50,10 @@ def _load_curve(
         return margin_service.get_curve_payload(group, days, force=force)
     if group == coal_price_service.COAL_GROUP_ID:
         return coal_price_service.get_curve_payload(
+            db, group, days, force=force, full=full
+        )
+    if group == coal_ltc_service.COAL_LTC_GROUP_ID:
+        return coal_ltc_service.get_curve_payload(
             db, group, days, force=force, full=full
         )
     if group in (

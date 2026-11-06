@@ -5,7 +5,12 @@ from marketdata.types import Bar
 
 def test_tencent_kline_parses(monkeypatch):
     js = 'kline_dayqfq={"data":{"sh600519":{"day":[["2026-07-01","1","3","4","0.5","100"],["2026-07-02","3","5","6","2","200"]]}}};'
-    monkeypatch.setattr(kv, "market_get", lambda *a, **k: js)
+    def fake_get(url, **kwargs):
+        assert url == "https://ifzq.gtimg.cn/appstock/app/fqkline/get"
+        assert kwargs["host_key"] == "ifzq.gtimg.cn"
+        return js
+
+    monkeypatch.setattr(kv, "market_get", fake_get)
     out = kv.TencentKlineVendor().fetch([Symbol.parse("600519")], {"days": 60})
     assert len(out) == 2 and isinstance(out[0], Bar)
     assert out[0].date == "2026-07-01" and out[0].close == 3.0 and out[1].volume == 200.0

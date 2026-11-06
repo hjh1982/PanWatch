@@ -4,6 +4,9 @@ ETF 用 Nasdaq 公开历史行情（已按拆股调整，但不含分红再投�
 美股指数日K（指数无拆股）。两者都只提供收盘价，因此本页签只展示价格收益，
 不含分红。
 
+Nasdaq 历史表的 EOD 行发布有延迟，指数日K 偶有坏值，因此再用腾讯美股实时
+行情补齐/修复最后一个已收盘交易日；报价与历史基准对不上时不注入。
+
 区间内以区间起点前最后一个收盘价为基准归一化为涨跌幅；各标的交易日不一致
 时按日期并集对齐，缺失日不补值。
 """
@@ -11,13 +14,16 @@ ETF 用 Nasdaq 公开历史行情（已按拆股调整，但不含分红再投�
 from __future__ import annotations
 
 import logging
+import math
 import re
 import threading
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from marketdata.vendors.kline import fetch_tencent_kline_raw
+from marketdata.vendors.tencent import _fetch_lines
 
 from src.modules.market.etf_share_service import _require_group
 from src.platform.marketdata.collectors.market_http import TTLCache, market_get
@@ -90,6 +96,12 @@ _NASDAQ_HEADERS = {
 _TENCENT_QUOTE_PAGE = "https://gu.qq.com/"
 
 _CACHE_TTL_S = 1800
+_QUOTE_CACHE_TTL_S = 300
+_VERIFIED_CLOSE_TTL_S = 7 * 24 * 3600
+# 腾讯报价的昨收必须与历史收盘基本一致才视为同一口径，否则（如拆股复权差异）不注入。
+_MATCH_TOLERANCE = 0.02
+_MARKET_CLOSE = time(16, 0)
+_ET = ZoneInfo("America/New_York")
 _cache = TTLCache(default_ttl_sec=_CACHE_TTL_S)
 _lock = threading.Lock()
 _asset_cache: dict[str, str] = {}
@@ -99,6 +111,14 @@ _asset_cache: dict[str, str] = {}
 class _Point:
     date: str
     close: float
+
+
+@dataclass(frozen=True, slots=True)
+class _Quote:
+    date: str
+    at: datetime
+    close: float
+    prev_close: float
 
 
 def parse_symbols(raw: str) -> tuple[str, ...]:
@@ -215,6 +235,75 @@ def _symbol_points(code: str, *, force: bool) -> list[_Point]:
         return points
 
 
+def parse_tencent_quote(line: str) -> tuple[str, _Quote] | None:
+    """解析一行腾讯行情：变量名给出腾讯符号，字段 3/4/30 给出收盘价、昨收与美东时间。"""
+    name, _, value = line.strip().partition('="')
+    parts = value.rstrip('";').split("~")
+    if not name.startswith("v_us") or len(parts) < 31:
+        return None
+    try:
+        at = datetime.strptime(parts[30], "%Y-%m-%d %H:%M:%S")
+        close = float(parts[3])
+        prev_close = float(parts[4])
+    except ValueError:
+        return None
+    if not all(math.isfinite(price) and price > 0 for price in (close, prev_close)):
+        return None
+    return name.removeprefix("v_"), _Quote(at.date().isoformat(), at, close, prev_close)
+
+
+def _latest_quotes(codes: tuple[str, ...], *, force: bool = False) -> dict[str, _Quote]:
+    if not codes:
+        return {}
+    key = "quotes:" + ",".join(codes)
+    if not force:
+        cached = _cache.get(key)
+        if isinstance(cached, dict):
+            return cached
+    symbols = {code: _INDEX_SYMBOLS.get(code) or f"us{code}" for code in codes}
+    by_symbol: dict[str, _Quote] = {}
+    for line in _fetch_lines(list(dict.fromkeys(symbols.values()))):
+        parsed = parse_tencent_quote(line)
+        if parsed is not None:
+            by_symbol[parsed[0]] = parsed[1]
+    quotes = {
+        code: by_symbol[symbol]
+        for code, symbol in symbols.items()
+        if symbol in by_symbol
+    }
+    _cache.set(key, quotes, _QUOTE_CACHE_TTL_S)
+    return quotes
+
+
+def _matches(a: float, b: float) -> bool:
+    return b > 0 and abs(a - b) / b <= _MATCH_TOLERANCE
+
+
+def _is_closed_session(quote: _Quote, now_et: datetime) -> bool:
+    # 不能把前一天的陈旧盘中报价当作收盘；提前休市日保守等待历史源。
+    return quote.at.time() >= _MARKET_CLOSE and quote.at <= now_et.replace(tzinfo=None)
+
+
+def _reconcile_latest(
+    points: list[_Point], quote: _Quote | None, now_et: datetime
+) -> tuple[list[_Point], bool]:
+    """仅用已收盘且昨收口径一致的报价补齐或修正历史末日。"""
+    if not points or quote is None or not _is_closed_session(quote, now_et):
+        return points, False
+    last = points[-1]
+    if quote.date < last.date:
+        return points, False
+    same_day = quote.date == last.date
+    if same_day and _matches(quote.close, last.close):
+        return points, False
+    anchor = (points[-2] if len(points) > 1 else None) if same_day else last
+    if anchor is None or not _matches(quote.prev_close, anchor.close):
+        return points, False
+    if same_day:
+        return [*points[:-1], _Point(last.date, quote.close)], True
+    return [*points, _Point(quote.date, quote.close)], True
+
+
 def _normalized(
     points: list[_Point], start: date
 ) -> tuple[dict[str, float], str | None]:
@@ -252,16 +341,31 @@ def build_payload(
 ) -> dict[str, Any]:
     group = _require_group(US_COMPARE_GROUP_ID)
     start = _range_start(range_key, today or date.today())
+    quotes = _latest_quotes(symbols, force=force)
+    now_et = datetime.now(_ET)
     per_symbol: dict[str, dict[str, float]] = {}
     bases: dict[str, str | None] = {}
     missing: list[str] = []
+    backfilled = False
     for code in symbols:
-        values, base_date = _normalized(_symbol_points(code, force=force), start)
+        history = _symbol_points(code, force=force)
+        quote = quotes.get(code)
+        points, adjusted = _reconcile_latest(history, quote, now_et)
+        verified_key = f"verified_close:{code}"
+        if adjusted:
+            _cache.set(verified_key, quote, _VERIFIED_CLOSE_TTL_S)
+        else:
+            # 报价失败或进入下一交易日盘中时，不撤销已核验的收盘补丁。
+            verified = _cache.get(verified_key)
+            if isinstance(verified, _Quote):
+                points, adjusted = _reconcile_latest(history, verified, now_et)
+        values, base_date = _normalized(points, start)
         if not values:
             missing.append(code)
             continue
         per_symbol[code] = values
         bases[code] = base_date
+        backfilled = backfilled or adjusted
 
     dates = sorted({day for values in per_symbol.values() for day in values})
     series = {
@@ -312,11 +416,13 @@ def build_payload(
             "target": len(dates),
             "complete": complete,
         },
-        "sources": _sources(per_symbol),
+        "sources": _sources(per_symbol, backfilled),
     }
 
 
-def _sources(per_symbol: dict[str, dict[str, float]]) -> list[dict[str, str]]:
+def _sources(
+    per_symbol: dict[str, dict[str, float]], backfilled: bool
+) -> list[dict[str, str]]:
     codes = set(per_symbol)
     sources: list[dict[str, str]] = []
     if codes - set(_INDEX_SYMBOLS):
@@ -333,6 +439,15 @@ def _sources(per_symbol: dict[str, dict[str, float]]) -> list[dict[str, str]]:
             {
                 "id": "tencent",
                 "name": "腾讯美股指数日K",
+                "url": _TENCENT_QUOTE_PAGE,
+                "cadence": "日度",
+            }
+        )
+    if backfilled:
+        sources.append(
+            {
+                "id": "tencent_quote",
+                "name": "腾讯美股收盘报价（补齐或校正历史末日）",
                 "url": _TENCENT_QUOTE_PAGE,
                 "cadence": "日度",
             }

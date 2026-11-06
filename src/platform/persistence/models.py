@@ -1568,6 +1568,23 @@ class CoalMonthlyPoint(Base):
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
 
+class CoalLtcPoint(Base):
+    """CCTD 秦皇岛动力煤长协价（元/吨），每月 1 日发布 5500/5000/4500 大卡三档。"""
+
+    __tablename__ = "coal_ltc_points"
+    __table_args__ = (
+        UniqueConstraint("month", name="uq_coal_ltc_points_month"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    month = Column(String(7), nullable=False)
+    price_5500 = Column(Float, nullable=False)
+    price_5000 = Column(Float)
+    price_4500 = Column(Float)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
 class AluminumPricePoint(Base):
     """A00 铝与山西氧化铝日度现货报价（元/吨）。"""
 

@@ -12,7 +12,7 @@ from marketdata.vendors.base import KlineVendor
 
 logger = logging.getLogger(__name__)
 
-_TENCENT_URL = "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get"
+_TENCENT_URL = "https://ifzq.gtimg.cn/appstock/app/fqkline/get"
 _EASTMONEY_URL = "https://push2his.eastmoney.com/api/qt/stock/kline/get"
 _STOOQ_URL = "https://stooq.com/q/d/l/"
 _YAHOO_CHART_URL = "https://query2.finance.yahoo.com/v8/finance/chart/{sym}"
@@ -39,7 +39,7 @@ def fetch_tencent_kline_raw(tsym: str, days: int) -> list[Bar]:
     """
     days = min(max(int(days or 1), 1), _TENCENT_MAX_COUNT)
     text = market_get(
-        _TENCENT_URL, host_key="web.ifzq.gtimg.cn", min_interval_s=0.15,
+        _TENCENT_URL, host_key="ifzq.gtimg.cn", min_interval_s=0.15,
         params={"param": f"{tsym},day,,,{days},qfq", "_var": "kline_dayqfq"},
         timeout=10, retries=2, parse="text", log_label="腾讯K线", symbol=tsym,
     )
