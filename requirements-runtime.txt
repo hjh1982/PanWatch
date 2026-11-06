@@ -3,6 +3,10 @@ apprise>=1.6.0
 openai>=1.0.0
 efinance>=0.4.0
 akshare>=1.10.0
+# 解析世界银行大宗商品月度价格表（M2 vs 黄金页签）
+openpyxl>=3.1.0
+# 解析长电来水发电公告 PDF
+pypdf>=5.0.0
 apscheduler>=3.10.0
 httpx>=0.25.0
 pydantic>=2.0.0
