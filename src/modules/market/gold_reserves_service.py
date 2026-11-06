@@ -11,11 +11,11 @@ from __future__ import annotations
 import logging
 import re
 import threading
-import time
 from typing import Any
 
 from src.modules.market.etf_share_service import _require_group
-from src.platform.marketdata.collectors.market_http import TTLCache, market_get
+from src.modules.market.statistics_store import StatisticsStore, merge_mappings
+from src.platform.marketdata.collectors.market_http import market_get
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +39,7 @@ _TAG = re.compile(r"<[^>]+>")
 _WAN_OUNCE_TO_TONNE = 0.311034768
 _CACHE_TTL_S = 6 * 3600
 
-_cache = TTLCache(default_ttl_sec=_CACHE_TTL_S)
+_store = StatisticsStore(namespace=GOLD_RESERVES_GROUP_ID, default_ttl_sec=_CACHE_TTL_S)
 _lock = threading.Lock()
 
 
@@ -131,34 +131,43 @@ def _fetch_year(year: int, article_path: str) -> dict[str, float]:
     return {}
 
 
-def _fetch_rows() -> dict[str, float]:
-    index = _fetch_text(_INDEX_URL, symbol="SAFE-index")
-    rows: dict[str, float] = {}
-    for year, path in parse_yearly_links(index):
-        try:
-            rows.update(_fetch_year(year, path))
-        except Exception as exc:  # 单年失败不影响其它年份
-            logger.warning("[黄金储备] %s 年数据抓取失败: %s", year, exc)
-    return rows
+def _load_index(*, force: bool) -> dict[str, str]:
+    cached = None if force else _store.get("index")
+    if cached is not None:
+        return cached
+    links = _store.get("index", allow_stale=True) or {}
+    try:
+        index = _fetch_text(_INDEX_URL, symbol="SAFE-index")
+        incoming = {str(year): path for year, path in parse_yearly_links(index)}
+    except Exception as exc:
+        logger.warning("[黄金储备] 年度索引抓取失败: %s", exc)
+    else:
+        if incoming:
+            links = {**links, **incoming}
+            _store.set("index", links)
+    return links
 
 
 def load_rows(*, force: bool = False) -> dict[str, float]:
-    if not force:
-        cached = _cache.get("rows")
-        if isinstance(cached, dict):
-            return cached
     with _lock:
-        if not force:
-            cached = _cache.get("rows")
-            if isinstance(cached, dict):
-                return cached
-        rows = _fetch_rows()
-        if not rows:
-            time.sleep(1.0)
-            rows = _fetch_rows()
-        if rows:
-            _cache.set("rows", rows)
-        return rows
+        rows: dict[str, float] = {}
+        for year, path in _load_index(force=force).items():
+            key = f"year:{year}"
+            cached = None if force else _store.get(key)
+            if cached is not None:
+                rows.update(cached)
+                continue
+            previous = _store.get(key, allow_stale=True) or {}
+            try:
+                incoming = _fetch_year(int(year), path)
+            except Exception as exc:
+                logger.warning("[黄金储备] %s 年数据抓取失败: %s", year, exc)
+            else:
+                if incoming:
+                    previous = merge_mappings(previous, incoming)
+                    _store.set(key, previous)
+            rows.update(previous)
+        return dict(sorted(rows.items()))
 
 
 def _prior_month(month: str) -> str:

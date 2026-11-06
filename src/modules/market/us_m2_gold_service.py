@@ -9,13 +9,15 @@ from __future__ import annotations
 
 import io
 import logging
+import math
 import re
 import threading
 import time
 from typing import Any, Callable
 
 from src.modules.market.etf_share_service import _require_group
-from src.platform.marketdata.collectors.market_http import TTLCache, market_get
+from src.modules.market.statistics_store import StatisticsStore, merge_mappings
+from src.platform.marketdata.collectors.market_http import market_get
 
 logger = logging.getLogger(__name__)
 
@@ -42,21 +44,20 @@ _UA = (
 _CACHE_TTL_S = 6 * 3600
 _METRIC_LABELS = {"m2": "M2 货币供应", "gold": "黄金价格"}
 
-_cache = TTLCache(default_ttl_sec=_CACHE_TTL_S)
-_lock = threading.Lock()
+_store = StatisticsStore(namespace=US_M2_GOLD_GROUP_ID, default_ttl_sec=_CACHE_TTL_S)
+_locks = {key: threading.Lock() for key in _METRIC_LABELS}
 
 
 def _to_float(value: Any) -> float | None:
     if isinstance(value, bool):
         return None
-    if isinstance(value, (int, float)):
-        return float(value)
-    if not isinstance(value, str):
+    if not isinstance(value, (int, float, str)):
         return None
     try:
-        return float(value.strip().replace(",", ""))
+        number = float(str(value).strip().replace(",", ""))
     except ValueError:
         return None
+    return number if math.isfinite(number) else None
 
 
 def _month_key(text: Any) -> str | None:
@@ -192,20 +193,40 @@ def _fetch_gold() -> dict[str, float]:
     return parse_wb_gold_workbook(content)
 
 
-def load_rows(*, force: bool = False) -> dict[str, dict[str, float]]:
+def _load_series(
+    series_id: str,
+    fetcher: Callable[[], dict[str, float]],
+    *,
+    force: bool,
+) -> dict[str, float]:
     if not force:
-        cached = _cache.get("rows")
+        cached = _store.get(series_id)
         if isinstance(cached, dict):
             return cached
-    with _lock:
+    with _locks[series_id]:
         if not force:
-            cached = _cache.get("rows")
+            cached = _store.get(series_id)
             if isinstance(cached, dict):
                 return cached
-        rows = {"m2": _retry(_fetch_m2), "gold": _retry(_fetch_gold)}
-        if rows["m2"] or rows["gold"]:
-            _cache.set("rows", rows)
-        return rows
+        previous = _store.get(series_id, allow_stale=True)
+        previous = previous if isinstance(previous, dict) else {}
+        try:
+            rows = _retry(fetcher)
+        except Exception as exc:
+            logger.warning("[M2 vs 黄金] %s 数据抓取失败: %s", series_id, exc)
+            return previous
+        if not rows:
+            return previous
+        merged = dict(sorted(merge_mappings(previous, rows).items()))
+        _store.set(series_id, merged)
+        return merged
+
+
+def load_rows(*, force: bool = False) -> dict[str, dict[str, float]]:
+    return {
+        "m2": _load_series("m2", _fetch_m2, force=force),
+        "gold": _load_series("gold", _fetch_gold, force=force),
+    }
 
 
 def _prior_month(month: str) -> str:

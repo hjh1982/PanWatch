@@ -89,6 +89,22 @@ def _ensure_db_schema():
     yield
 
 
+@pytest.fixture(autouse=True)
+def statistics_db(monkeypatch, tmp_path):
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+
+    from src.modules.market import statistics_store
+    from src.platform.persistence.models import StatisticSnapshot
+
+    engine = create_engine(f"sqlite:///{tmp_path / 'statistics.db'}")
+    StatisticSnapshot.__table__.create(engine)
+    sessions = sessionmaker(bind=engine)
+    monkeypatch.setattr(statistics_store, "SessionLocal", sessions)
+    yield sessions
+    engine.dispose()
+
+
 # ---------------------------------------------------------------------------
 # 共用工厂 fixtures
 # ---------------------------------------------------------------------------

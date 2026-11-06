@@ -26,7 +26,8 @@ from marketdata.vendors.kline import fetch_tencent_kline_raw
 from marketdata.vendors.tencent import _fetch_lines
 
 from src.modules.market.etf_share_service import _require_group
-from src.platform.marketdata.collectors.market_http import TTLCache, market_get
+from src.modules.market.statistics_store import StatisticsStore
+from src.platform.marketdata.collectors.market_http import market_get
 
 logger = logging.getLogger(__name__)
 
@@ -102,9 +103,8 @@ _VERIFIED_CLOSE_TTL_S = 7 * 24 * 3600
 _MATCH_TOLERANCE = 0.02
 _MARKET_CLOSE = time(16, 0)
 _ET = ZoneInfo("America/New_York")
-_cache = TTLCache(default_ttl_sec=_CACHE_TTL_S)
+_store = StatisticsStore(US_COMPARE_GROUP_ID, _CACHE_TTL_S)
 _lock = threading.Lock()
-_asset_cache: dict[str, str] = {}
 
 
 @dataclass(frozen=True, slots=True)
@@ -173,14 +173,14 @@ def parse_nasdaq_history(payload: Any) -> list[_Point]:
             )
         except (TypeError, ValueError):
             continue
-        if close > 0:
+        if math.isfinite(close) and close > 0:
             points.append(_Point(day, close))
     points.sort(key=lambda point: point.date)
     return points
 
 
 def _fetch_nasdaq(code: str, start: date) -> list[_Point]:
-    cached_asset = _asset_cache.get(code)
+    cached_asset = _store.get(f"asset:{code}", allow_stale=True)
     assets = [cached_asset] if cached_asset else ["etf", "stocks"]
     for asset in assets:
         payload = market_get(
@@ -201,7 +201,7 @@ def _fetch_nasdaq(code: str, start: date) -> list[_Point]:
         )
         points = parse_nasdaq_history(payload)
         if points:
-            _asset_cache[code] = asset
+            _store.set(f"asset:{code}", asset)
             return points
     return []
 
@@ -220,19 +220,21 @@ def _fetch_symbol_points(code: str) -> list[_Point]:
 
 def _symbol_points(code: str, *, force: bool) -> list[_Point]:
     key = f"points:{code}"
-    if not force:
-        cached = _cache.get(key)
-        if isinstance(cached, list):
-            return cached
     with _lock:
         if not force:
-            cached = _cache.get(key)
-            if isinstance(cached, list):
-                return cached
-        points = _fetch_symbol_points(code)
+            cached = _store.get(key)
+            if cached is not None:
+                return [_Point(**row) for row in cached]
+        try:
+            points = _fetch_symbol_points(code)
+        except Exception as exc:
+            logger.warning("[美股收益对比] %s 历史更新失败: %s", code, exc)
+            points = []
         if points:
-            _cache.set(key, points)
-        return points
+            # 拆股会重算整段复权历史，不能与旧快照拼接成两种价格口径。
+            _store.set(key, [{"date": point.date, "close": point.close} for point in points])
+            return points
+        return [_Point(**row) for row in (_store.get(key, allow_stale=True) or [])]
 
 
 def parse_tencent_quote(line: str) -> tuple[str, _Quote] | None:
@@ -252,26 +254,51 @@ def parse_tencent_quote(line: str) -> tuple[str, _Quote] | None:
     return name.removeprefix("v_"), _Quote(at.date().isoformat(), at, close, prev_close)
 
 
+def _quote_record(quote: _Quote) -> dict[str, Any]:
+    return {
+        "date": quote.date,
+        "at": quote.at.isoformat(),
+        "close": quote.close,
+        "prev_close": quote.prev_close,
+    }
+
+
+def _stored_quote(key: str, *, allow_stale: bool = False) -> _Quote | None:
+    record = _store.get(key, allow_stale=allow_stale)
+    if record is None:
+        return None
+    return _Quote(record["date"], datetime.fromisoformat(record["at"]), record["close"], record["prev_close"])
+
+
 def _latest_quotes(codes: tuple[str, ...], *, force: bool = False) -> dict[str, _Quote]:
-    if not codes:
-        return {}
-    key = "quotes:" + ",".join(codes)
-    if not force:
-        cached = _cache.get(key)
-        if isinstance(cached, dict):
-            return cached
-    symbols = {code: _INDEX_SYMBOLS.get(code) or f"us{code}" for code in codes}
+    quotes: dict[str, _Quote] = {}
+    symbols: dict[str, str] = {}
+    for code in codes:
+        cached = None if force else _stored_quote(f"quote:{code}")
+        if cached is not None:
+            quotes[code] = cached
+        else:
+            symbols[code] = _INDEX_SYMBOLS.get(code) or f"us{code}"
+    if not symbols:
+        return quotes
     by_symbol: dict[str, _Quote] = {}
-    for line in _fetch_lines(list(dict.fromkeys(symbols.values()))):
+    try:
+        lines = _fetch_lines(list(dict.fromkeys(symbols.values())))
+    except Exception as exc:
+        logger.warning("[美股收益对比] 报价更新失败: %s", exc)
+        lines = []
+    for line in lines:
         parsed = parse_tencent_quote(line)
         if parsed is not None:
             by_symbol[parsed[0]] = parsed[1]
-    quotes = {
-        code: by_symbol[symbol]
-        for code, symbol in symbols.items()
-        if symbol in by_symbol
-    }
-    _cache.set(key, quotes, _QUOTE_CACHE_TTL_S)
+    for code, symbol in symbols.items():
+        quote = by_symbol.get(symbol)
+        if quote is not None:
+            _store.set(f"quote:{code}", _quote_record(quote), _QUOTE_CACHE_TTL_S)
+        else:
+            quote = _stored_quote(f"quote:{code}", allow_stale=True)
+        if quote is not None:
+            quotes[code] = quote
     return quotes
 
 
@@ -352,13 +379,13 @@ def build_payload(
         quote = quotes.get(code)
         points, adjusted = _reconcile_latest(history, quote, now_et)
         verified_key = f"verified_close:{code}"
+        verified = _stored_quote(verified_key, allow_stale=True)
         if adjusted:
-            _cache.set(verified_key, quote, _VERIFIED_CLOSE_TTL_S)
-        else:
-            # 报价失败或进入下一交易日盘中时，不撤销已核验的收盘补丁。
-            verified = _cache.get(verified_key)
-            if isinstance(verified, _Quote):
-                points, adjusted = _reconcile_latest(history, verified, now_et)
+            if verified != quote:
+                _store.set(verified_key, _quote_record(quote), _VERIFIED_CLOSE_TTL_S)
+        elif verified is not None:
+            # 收盘补丁不过期删除；每次仍用历史昨收核验，防止复权变化后误用。
+            points, adjusted = _reconcile_latest(history, verified, now_et)
         values, base_date = _normalized(points, start)
         if not values:
             missing.append(code)

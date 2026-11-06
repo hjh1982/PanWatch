@@ -11,15 +11,16 @@ from __future__ import annotations
 
 import io
 import logging
+import math
 import re
 import threading
-import time
 from typing import Any
 
 from pypdf import PdfReader
 
 from src.modules.market.etf_share_service import _require_group
-from src.platform.marketdata.collectors.market_http import TTLCache, market_get
+from src.modules.market.statistics_store import StatisticsStore, merge_mappings
+from src.platform.marketdata.collectors.market_http import market_get
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +46,7 @@ _STATION_KEYS = {
     "葛洲坝": "gezhouba",
 }
 
-_cache = TTLCache(default_ttl_sec=_CACHE_TTL_S)
+_store = StatisticsStore(namespace=HYDROPOWER_GROUP_ID, default_ttl_sec=_CACHE_TTL_S)
 _lock = threading.Lock()
 
 
@@ -54,7 +55,7 @@ def _positive_float(value: Any) -> float | None:
         number = float(str(value).replace(",", ""))
     except (TypeError, ValueError):
         return None
-    return number if number > 0 else None
+    return number if math.isfinite(number) and number > 0 else None
 
 
 def _compact(text: Any) -> str:
@@ -308,7 +309,11 @@ def _fetch_announcements() -> list[dict[str, Any]]:
     parsed: list[dict[str, Any]] = []
     for period in sorted(found):
         item = found[period]
-        record = parse_announcement(_fetch_pdf_text(item["art_code"]), period)
+        try:
+            record = parse_announcement(_fetch_pdf_text(item["art_code"]), period)
+        except Exception as exc:
+            logger.warning("[长电来水发电] %s 公告抓取失败: %s", period, exc)
+            continue
         if record is not None:
             parsed.append(record)
     return parsed
@@ -330,23 +335,30 @@ def _list_is_old(payload: Any) -> bool:
 
 def load_rows(*, force: bool = False) -> list[dict[str, Any]]:
     if not force:
-        cached = _cache.get("rows")
+        cached = _store.get("announcements")
         if isinstance(cached, list):
-            return cached
+            return build_rows(cached)
     with _lock:
         if not force:
-            cached = _cache.get("rows")
+            cached = _store.get("announcements")
             if isinstance(cached, list):
-                return cached
-        announcements = _fetch_announcements()
-        rows = build_rows(announcements)
-        if not rows:
-            time.sleep(1.0)
-            announcements = _fetch_announcements()
-            rows = build_rows(announcements)
-        if rows:
-            _cache.set("rows", rows)
-        return rows
+                return build_rows(cached)
+        previous = _store.get("announcements", allow_stale=True)
+        announcements = previous if isinstance(previous, list) else []
+        try:
+            incoming = _fetch_announcements()
+        except Exception as exc:
+            logger.warning("[长电来水发电] 公告抓取失败: %s", exc)
+        else:
+            if incoming:
+                # 合并原始累计披露后统一差分，不能用新季度结果覆盖旧季度结果。
+                by_period = merge_mappings(
+                    {item["period"]: item for item in announcements},
+                    {item["period"]: item for item in incoming},
+                )
+                announcements = [by_period[period] for period in sorted(by_period)]
+                _store.set("announcements", announcements)
+        return build_rows(announcements)
 
 
 def _series(rows: list[dict[str, Any]], key: str) -> list[float | None]:

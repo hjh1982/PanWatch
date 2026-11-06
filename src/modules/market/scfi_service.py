@@ -10,13 +10,14 @@ from __future__ import annotations
 
 import html
 import logging
+import math
 import re
 import threading
-import time
 from typing import Any
 
 from src.modules.market.etf_share_service import _require_group
-from src.platform.marketdata.collectors.market_http import TTLCache, market_get
+from src.modules.market.statistics_store import StatisticsStore, merge_mappings
+from src.platform.marketdata.collectors.market_http import market_get
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +45,7 @@ _STYLE = re.compile(r"<style.*?</style>", re.S | re.I)
 _TAG = re.compile(r"<[^>]+>")
 
 _CACHE_TTL_S = 6 * 3600
-_cache = TTLCache(default_ttl_sec=_CACHE_TTL_S)
+_store = StatisticsStore(namespace=SCFI_GROUP_ID, default_ttl_sec=_CACHE_TTL_S)
 _lock = threading.Lock()
 
 
@@ -80,7 +81,7 @@ def _positive_float(value: Any) -> float | None:
         number = float(value)
     except (TypeError, ValueError):
         return None
-    return number if number > 0 else None
+    return number if math.isfinite(number) and number > 0 else None
 
 
 def parse_weekly_rows(page: Any) -> dict[str, float]:
@@ -132,39 +133,29 @@ def _fetch_mirror() -> dict[str, float]:
     return rows
 
 
-def _fetch_snapshot() -> dict[str, Any]:
-    mirror: dict[str, float] = {}
-    official: dict[str, float] = {}
-    try:
-        mirror = _fetch_mirror()
-    except Exception as exc:
-        logger.warning("[SCFI] 周度历史抓取失败: %s", exc)
-    try:
-        official = _fetch_official()
-    except Exception as exc:
-        logger.warning("[SCFI] 官方最新一期抓取失败: %s", exc)
-    rows = dict(mirror)
-    rows.update(official)
-    return {"rows": rows, "mirror": mirror, "official": official}
-
-
 def _load_snapshot(*, force: bool = False) -> dict[str, Any]:
-    if not force:
-        cached = _cache.get("snapshot")
-        if isinstance(cached, dict):
-            return cached
     with _lock:
-        if not force:
-            cached = _cache.get("snapshot")
+        snapshot: dict[str, dict[str, float]] = {}
+        for key, fetch in (("mirror", _fetch_mirror), ("official", _fetch_official)):
+            cached = None if force else _store.get(key)
             if isinstance(cached, dict):
-                return cached
-        snapshot = _fetch_snapshot()
-        if not snapshot["rows"]:
-            time.sleep(1.0)
-            snapshot = _fetch_snapshot()
-        if snapshot["rows"]:
-            _cache.set("snapshot", snapshot)
-        return snapshot
+                snapshot[key] = cached
+                continue
+            previous = _store.get(key, allow_stale=True)
+            rows = previous if isinstance(previous, dict) else {}
+            try:
+                incoming = fetch()
+            except Exception as exc:
+                logger.warning("[SCFI] %s 抓取失败: %s", key, exc)
+            else:
+                if incoming:
+                    rows = merge_mappings(rows, incoming)
+                    _store.set(key, rows)
+            snapshot[key] = rows
+        # 官方历史独立保存，暂时抓取失败时也不能被镜像的低精度值覆盖。
+        rows = dict(snapshot["mirror"])
+        rows.update(snapshot["official"])
+        return {"rows": rows, **snapshot}
 
 
 def build_payload(

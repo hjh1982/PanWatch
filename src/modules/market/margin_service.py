@@ -5,8 +5,9 @@ from __future__ import annotations
 import logging
 import math
 import threading
-import time
 from typing import Any
+
+from src.modules.market.statistics_store import StatisticsStore, merge_mappings
 
 from src.modules.market.etf_share_service import (
     _require_group,
@@ -43,8 +44,8 @@ _SERIES: tuple[tuple[str, str], ...] = (
 )
 _METRIC_IDS = tuple(metric_id for metric_id, _ in _SERIES)
 
-_cache_lock = threading.Lock()
-_cache: dict[str, Any] = {"fetched_at": 0.0, "rows": {}}
+_lock = threading.Lock()
+_store = StatisticsStore(MARGIN_GROUP_ID, _CACHE_TTL_S)
 
 
 def _to_float(value: Any) -> float | None:
@@ -112,22 +113,22 @@ def fetch_market_rows() -> dict[str, dict[str, float]]:
 
 
 def _load_rows(*, force: bool) -> dict[str, dict[str, float]]:
-    now = time.monotonic()
-    with _cache_lock:
-        cached: dict[str, dict[str, float]] = _cache["rows"]
-        fresh = bool(cached) and now - _cache["fetched_at"] < _CACHE_TTL_S
-    if fresh and not force:
-        return cached
-
-    rows = fetch_market_rows()
-    if rows:
-        with _cache_lock:
-            _cache["rows"] = rows
-            _cache["fetched_at"] = time.monotonic()
-        return rows
-
-    with _cache_lock:
-        return dict(_cache["rows"] or {})
+    with _lock:
+        if not force:
+            cached = _store.get("rows")
+            if cached is not None:
+                return cached
+        previous = _store.get("rows", allow_stale=True) or {}
+        try:
+            rows = fetch_market_rows()
+        except Exception as exc:
+            logger.warning("[融资融券] 更新失败，沿用本地数据: %s", exc)
+            rows = {}
+        if rows:
+            rows = merge_mappings(previous, rows)
+            _store.set("rows", rows)
+            return rows
+        return previous
 
 
 def build_market_payload(

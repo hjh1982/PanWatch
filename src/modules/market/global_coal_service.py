@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import re
 import threading
 import time
@@ -16,7 +17,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from src.modules.market.etf_share_service import _require_group
-from src.platform.marketdata.collectors.market_http import TTLCache, market_get
+from src.modules.market.statistics_store import StatisticsStore, merge_mappings
+from src.platform.marketdata.collectors.market_http import market_get
 
 logger = logging.getLogger(__name__)
 
@@ -87,24 +89,20 @@ SERIES: tuple[SeriesDef, ...] = (
         cadence="日线",
     ),
 )
-_cache = TTLCache(default_ttl_sec=_CACHE_TTL_S)
+_store = StatisticsStore(namespace=GLOBAL_COAL_GROUP_ID, default_ttl_sec=_CACHE_TTL_S)
 _locks = {item.id: threading.Lock() for item in SERIES}
 
 
 def _to_float(value: Any) -> float | None:
     if isinstance(value, bool):
         return None
-    if isinstance(value, (int, float)):
-        return float(value)
-    if not isinstance(value, str):
-        return None
-    text = value.strip()
-    if not text:
+    if not isinstance(value, (int, float, str)):
         return None
     try:
-        return float(text)
+        number = float(value)
     except ValueError:
         return None
+    return number if math.isfinite(number) else None
 
 
 def parse_eastmoney_payload(payload: Any) -> dict[str, float]:
@@ -246,24 +244,32 @@ _FETCHERS = {
 
 def _load_series(series_id: str, *, force: bool) -> dict[str, float]:
     if not force:
-        cached = _cache.get(series_id)
+        cached = _store.get(series_id)
         if isinstance(cached, dict):
             return cached
     with _locks[series_id]:
         if not force:
-            cached = _cache.get(series_id)
+            cached = _store.get(series_id)
             if isinstance(cached, dict):
                 return cached
+        previous = _store.get(series_id, allow_stale=True)
+        previous = previous if isinstance(previous, dict) else {}
         rows: dict[str, float] = {}
-        for attempt in range(3):
-            rows = _FETCHERS[series_id]()
-            if rows:
-                break
-            if attempt < 2:
-                time.sleep(1.0 + attempt)
-        if rows:
-            _cache.set(series_id, rows)
-        return rows
+        try:
+            for attempt in range(3):
+                rows = _FETCHERS[series_id]()
+                if rows:
+                    break
+                if attempt < 2:
+                    time.sleep(1.0 + attempt)
+        except Exception as exc:
+            logger.warning("[全球煤炭] %s 数据抓取失败: %s", series_id, exc)
+            return previous
+        if not rows:
+            return previous
+        merged = dict(sorted(merge_mappings(previous, rows).items()))
+        _store.set(series_id, merged)
+        return merged
 
 
 def load_rows(*, force: bool = False) -> dict[str, dict[str, float]]:

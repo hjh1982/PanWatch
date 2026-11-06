@@ -8,13 +8,15 @@
 from __future__ import annotations
 
 import logging
+import math
 import re
 import threading
 import time
 from typing import Any
 
 from src.modules.market.etf_share_service import _require_group
-from src.platform.marketdata.collectors.market_http import TTLCache, market_get
+from src.modules.market.statistics_store import StatisticsStore, merge_mappings
+from src.platform.marketdata.collectors.market_http import market_get
 
 logger = logging.getLogger(__name__)
 
@@ -42,21 +44,20 @@ SERIES_IDS: tuple[str, ...] = tuple(
 )
 METRIC_FIELDS: tuple[str, ...] = _FIELDS
 
-_cache = TTLCache(default_ttl_sec=_CACHE_TTL_S)
+_store = StatisticsStore(namespace=AUTO_SALES_GROUP_ID, default_ttl_sec=_CACHE_TTL_S)
 _lock = threading.Lock()
 
 
 def _to_float(value: Any) -> float | None:
     if isinstance(value, bool):
         return None
-    if isinstance(value, (int, float)):
-        return float(value)
-    if not isinstance(value, str):
+    if not isinstance(value, (int, float, str)):
         return None
     try:
-        return float(value.strip().replace(",", ""))
+        number = float(str(value).strip().replace(",", ""))
     except ValueError:
         return None
+    return number if math.isfinite(number) else None
 
 
 def _monthly_totals(dataset: dict[str, Any]) -> dict[str, float]:
@@ -155,24 +156,32 @@ def _fetch_rows() -> dict[str, dict[str, float]]:
 
 def load_rows(*, force: bool = False) -> dict[str, dict[str, float]]:
     if not force:
-        cached = _cache.get("rows")
+        cached = _store.get("rows")
         if isinstance(cached, dict):
             return cached
     with _lock:
         if not force:
-            cached = _cache.get("rows")
+            cached = _store.get("rows")
             if isinstance(cached, dict):
                 return cached
+        previous = _store.get("rows", allow_stale=True)
+        previous = previous if isinstance(previous, dict) else {}
         rows: dict[str, dict[str, float]] = {}
-        for attempt in range(3):
-            rows = _fetch_rows()
-            if rows:
-                break
-            if attempt < 2:
-                time.sleep(1.0 + attempt)
-        if rows:
-            _cache.set("rows", rows)
-        return rows
+        try:
+            for attempt in range(3):
+                rows = _fetch_rows()
+                if rows:
+                    break
+                if attempt < 2:
+                    time.sleep(1.0 + attempt)
+        except Exception as exc:
+            logger.warning("[乘用车产销] 数据抓取失败: %s", exc)
+            return previous
+        if not rows:
+            return previous
+        merged = dict(sorted(merge_mappings(previous, rows).items()))
+        _store.set("rows", merged)
+        return merged
 
 
 def _yoy_metric(

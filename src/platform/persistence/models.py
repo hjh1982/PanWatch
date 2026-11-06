@@ -1507,6 +1507,16 @@ class MCPCallLog(Base):
     called_at = Column(DateTime, server_default=func.now())
 
 
+class StatisticSnapshot(Base):
+    __tablename__ = "statistic_snapshots"
+
+    namespace = Column(String(40), primary_key=True)
+    key = Column(String(100), primary_key=True)
+    payload = Column(JSON, nullable=False)
+    fetched_at = Column(Float, nullable=False)
+    expires_at = Column(Float, nullable=False)
+
+
 class EtfShareSnapshot(Base):
     """沪深交易所披露的单只 ETF 基金份额（清算后，单位：亿份）。"""
 

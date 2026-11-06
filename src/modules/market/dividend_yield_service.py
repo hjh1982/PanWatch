@@ -15,14 +15,18 @@
 from __future__ import annotations
 
 import logging
+import math
 import threading
 from bisect import bisect_right
+from collections.abc import Callable
 from datetime import date, datetime, timedelta
+from functools import partial
 from typing import Any
 from zoneinfo import ZoneInfo
 
 from src.modules.market.etf_share_service import _require_group
-from src.platform.marketdata.collectors.market_http import TTLCache, market_get
+from src.modules.market.statistics_store import StatisticsStore, merge_mappings
+from src.platform.marketdata.collectors.market_http import market_get
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +73,7 @@ _SERIES_LABELS = {
     "spread": "股息率-国债利差",
 }
 
-_cache = TTLCache(default_ttl_sec=_CACHE_TTL_S)
+_store = StatisticsStore(namespace=DIVIDEND_YIELD_GROUP_ID, default_ttl_sec=_CACHE_TTL_S)
 _lock = threading.Lock()
 
 
@@ -82,7 +86,7 @@ def _float(value: Any) -> float | None:
         number = float(value)
     except (TypeError, ValueError):
         return None
-    return number if number == number else None
+    return number if math.isfinite(number) else None
 
 
 def parse_sw_rows(payload: Any) -> dict[str, float]:
@@ -182,33 +186,44 @@ def _fetch_bond_rows(start: str, end: str) -> dict[str, float]:
     return rows
 
 
-def load_rows(*, force: bool = False) -> dict[str, Any]:
+def _load_source(
+    key: str, fetch: Callable[[], dict[str, float]], *, force: bool
+) -> dict[str, float]:
     if not force:
-        cached = _cache.get("rows")
+        cached = _store.get(key)
         if isinstance(cached, dict):
             return cached
+    previous = _store.get(key, allow_stale=True)
+    rows = previous if isinstance(previous, dict) else {}
+    try:
+        incoming = fetch()
+    except Exception as exc:
+        logger.warning("[股息率] %s 抓取失败: %s", key, exc)
+        return rows
+    if incoming:
+        rows = merge_mappings(rows, incoming)
+        _store.set(key, rows)
+    return rows
+
+
+def load_rows(*, force: bool = False) -> dict[str, Any]:
     with _lock:
-        if not force:
-            cached = _cache.get("rows")
-            if isinstance(cached, dict):
-                return cached
         end = _now_cn().date()
         start = end - timedelta(days=_LOOKBACK_DAYS)
         start_text, end_text = start.isoformat(), end.isoformat()
         equity: dict[str, dict[str, float]] = {}
         for key, code, index_type in _SW_INDEXES:
-            try:
-                rows = _fetch_sw_index(index_type, code, start_text, end_text)
-            except Exception as exc:
-                logger.warning("[股息率] 申万 %s 抓取失败: %s", code, exc)
-                rows = {}
+            rows = _load_source(
+                f"equity:{key}",
+                partial(_fetch_sw_index, index_type, code, start_text, end_text),
+                force=force,
+            )
             if rows:
                 equity[key] = rows
-        bond = _fetch_bond_rows(start_text, end_text)
-        result = {"equity": equity, "bond": bond, "start": start_text, "end": end_text}
-        if equity:
-            _cache.set("rows", result)
-        return result
+        bond = _load_source(
+            "bond", lambda: _fetch_bond_rows(start_text, end_text), force=force
+        )
+        return {"equity": equity, "bond": bond, "start": start_text, "end": end_text}
 
 
 def _align_bond(dates: list[str], bond: dict[str, float]) -> list[float | None]:
