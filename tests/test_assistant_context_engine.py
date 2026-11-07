@@ -1,6 +1,7 @@
 import asyncio
 from types import SimpleNamespace
 
+import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -8,6 +9,14 @@ from sqlalchemy.pool import StaticPool
 from src.platform.persistence.database import Base
 from src.platform.persistence.models import AIModel, AIService, AppSettings, ChatConversation  # noqa: F401
 from src.modules.assistant.schemas import CreateConversationCommand
+
+
+@pytest.fixture(autouse=True)
+def _auto_ai_enabled(monkeypatch):
+    # 本文件的用例覆盖自动压缩本身,需显式打开自动 AI 总开关。
+    monkeypatch.setattr(
+        "src.modules.assistant.service.is_ai_auto_enabled", lambda db=None: True
+    )
 
 
 def _service(settings=None):
@@ -79,6 +88,32 @@ def test_service_prepares_context_and_persists_snapshot_without_mutating_message
     assert snapshot.version == 1
     assert snapshot.usage_before["total_tokens"] > snapshot.usage_after["total_tokens"]
     assert [message.content for message in service._repository.list_messages(conversation.id)] == before
+    session.close()
+    engine.dispose()
+
+
+def test_prepare_context_skips_auto_compression_but_manual_compress_still_works(monkeypatch):
+    engine, session, service = _service(_settings())
+    conversation = service.create_conversation(CreateConversationCommand())
+    for index in range(3):
+        service.record_user_message(conversation.id, f"目标和约束 {index} " + "x" * 500)
+
+    class FakeClient:
+        async def chat_multi(self, messages, temperature=0.4):
+            return '{"goal":["保留目标"],"constraints":[],"decisions":[],"facts":[],"current_state":"继续","open_items":[],"tool_findings":[]}'
+
+    monkeypatch.setattr(service, "build_context_compression_client", lambda: FakeClient())
+    monkeypatch.setattr(
+        "src.modules.assistant.service.is_ai_auto_enabled", lambda db=None: False
+    )
+
+    result = asyncio.run(service.prepare_context(conversation.id))
+    assert result.compressed is False
+    assert service._repository.get_latest_context_snapshot(conversation.id) is None
+
+    forced = asyncio.run(service.compress_context(conversation.id))
+    assert forced.compressed is True
+    assert service._repository.get_latest_context_snapshot(conversation.id) is not None
     session.close()
     engine.dispose()
 

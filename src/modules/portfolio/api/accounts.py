@@ -11,6 +11,7 @@ from pydantic import BaseModel
 
 from datetime import datetime, timedelta, timezone
 
+from src.modules.paper_trading.paper_settlement import market_date
 from src.modules.portfolio.fees import calc_fee
 from src.platform.persistence.database import get_db
 from src.platform.persistence.models import Account, AccountTransaction, PriceAlertRule, Position, Stock
@@ -18,6 +19,7 @@ from src.platform.marketdata.marketdata_client import md_quote_rows
 from src.platform.marketdata.collectors.market_http import TTLCache
 from src.platform.marketdata.models import MarketCode
 from src.platform.marketdata.quote_display import daily_quote_fields
+from src.platform.scheduling import trading_calendar as calendar
 from src.web.errors import ai_api_error, api_error
 
 logger = logging.getLogger(__name__)
@@ -628,6 +630,47 @@ def get_portfolio_summary(
     stocks = db.query(Stock).filter(Stock.id.in_(all_stock_ids)).all() if all_stock_ids else []
     stock_map = {s.id: s for s in stocks}
 
+    # 今日成交参与当日盈亏：昨收市值 + 今日买入支出 - 今日卖出收入。
+    today_flows: dict[tuple[int, int], dict[str, float]] = {}
+    if all_stock_ids:
+        market_today = {}
+        for market in {stock.market for stock in stocks}:
+            code = calendar._to_market_code(market)
+            if code is not None:
+                market_today[market] = market_date(market, calendar._now_in_market_tz(code))
+        if market_today:
+            cutoff = min(
+                (calendar._now_in_market_tz(calendar._to_market_code(market)) - timedelta(days=4))
+                .astimezone(timezone.utc)
+                .replace(tzinfo=None)
+                for market in market_today
+            )
+            txns = (
+                db.query(AccountTransaction)
+                .filter(
+                    AccountTransaction.account_id.in_([acc.id for acc in accounts]),
+                    AccountTransaction.stock_id.in_(all_stock_ids),
+                    AccountTransaction.traded_at >= cutoff,
+                )
+                .all()
+            )
+            for txn in txns:
+                stock = stock_map.get(txn.stock_id)
+                if not stock or txn.traded_at is None or stock.market not in market_today:
+                    continue
+                if market_date(stock.market, txn.traded_at) != market_today[stock.market]:
+                    continue
+                flow = today_flows.setdefault(
+                    (txn.account_id, txn.stock_id),
+                    {"buy_quantity": 0, "buy_gross": 0.0, "sell_quantity": 0, "sell_net": 0.0},
+                )
+                if txn.side == "buy":
+                    flow["buy_quantity"] += txn.quantity
+                    flow["buy_gross"] += txn.amount + txn.fee
+                elif txn.side == "sell":
+                    flow["sell_quantity"] += txn.quantity
+                    flow["sell_net"] += txn.amount - txn.fee
+
     # 获取实时行情（可选）
     quotes = _fetch_quotes_for_stocks(stocks) if include_quotes else {}
 
@@ -664,6 +707,12 @@ def get_portfolio_summary(
             change_pct = daily_fields["change_pct"]
             prev_close = quote.get("prev_close") if quote else None
 
+            flow = today_flows.get((acc.id, pos.stock_id)) or {}
+            day_buy_quantity = int(flow.get("buy_quantity", 0))
+            day_sell_quantity = int(flow.get("sell_quantity", 0))
+            day_start_quantity = max(0, int(pos.quantity) - day_buy_quantity + day_sell_quantity)
+            day_net_invested = float(flow.get("buy_gross", 0.0)) - float(flow.get("sell_net", 0.0))
+
             # 根据市场确定汇率
             is_foreign = stock.market in ("HK", "US")
             if stock.market == "HK":
@@ -683,7 +732,11 @@ def get_portfolio_summary(
             if daily_fields["daily_move_status"] in ("closed", "pre_market"):
                 daily_pnl = 0.0
             elif daily_fields["daily_move_status"] == "current" and current_price is not None and prev_close and prev_close > 0:
-                daily_pnl = (current_price - prev_close) * pos.quantity * rate
+                daily_pnl = (
+                    current_price * pos.quantity
+                    - prev_close * day_start_quantity
+                    - day_net_invested
+                ) * rate
                 daily_pnl_pct = (current_price - prev_close) / prev_close * 100
                 acc_daily_pnl += daily_pnl
 
@@ -713,6 +766,9 @@ def get_portfolio_summary(
                 "current_price": current_price,
                 "current_price_cny": round(current_price * rate, 2) if current_price else None,
                 "change_pct": change_pct,
+                "prev_close": prev_close,
+                "day_start_quantity": day_start_quantity,
+                "day_net_invested": round(day_net_invested, 2),
                 "market_value": round(market_value, 2) if market_value else None,
                 "market_value_cny": round(market_value_cny, 2) if market_value_cny else None,
                 "pnl": round(pnl, 2) if pnl else None,
@@ -777,6 +833,7 @@ def get_portfolio_summary(
         for symbol, quote in quotes.items():
             quotes_dict[symbol] = {
                 "current_price": quote.get("current_price"),
+                "prev_close": quote.get("prev_close"),
                 **daily_quote_fields(quote.get("market", "CN"), quote),
             }
 

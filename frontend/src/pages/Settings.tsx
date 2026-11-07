@@ -195,6 +195,7 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState<string | null>(null)
   const [saved, setSaved] = useState<string | null>(null)
   const [edited, setEdited] = useState<Record<string, string>>({})
+  const [aiAutoSaving, setAiAutoSaving] = useState(false)
 
   const [systemQuery, setSystemQuery] = useState('')
 
@@ -661,10 +662,44 @@ export default function SettingsPage() {
   }
 
   const filteredSettings = settings.filter(s => {
+    if (s.key === 'ai_auto_enabled') return false
     const q = systemQuery.trim().toLowerCase()
     if (!q) return true
     return settingLabel(s).toLowerCase().includes(q) || (s.key || '').toLowerCase().includes(q)
   })
+
+  const settingValue = (key: string, fallback = '') =>
+    edited[key] ?? settings.find(s => s.key === key)?.value ?? fallback
+  const aiAutoOn = settingValue('ai_auto_enabled', 'false') === 'true'
+
+  const setAiAutoEnabled = async (enabled: boolean) => {
+    const value = enabled ? 'true' : 'false'
+    setEdited(prev => ({ ...prev, ai_auto_enabled: value }))
+    setAiAutoSaving(true)
+    try {
+      await fetchAPI('/settings/ai_auto_enabled', { method: 'PUT', body: JSON.stringify({ value }) })
+      await load()
+      setEdited(prev => {
+        if (prev.ai_auto_enabled !== value) return prev
+        const next = { ...prev }
+        delete next.ai_auto_enabled
+        return next
+      })
+      toast(
+        configT(enabled ? 'configuration:settingsPage.ai.autoEnabled' : 'configuration:settingsPage.ai.autoDisabled'),
+        'success',
+      )
+    } catch {
+      setEdited(prev => {
+        const next = { ...prev }
+        delete next.ai_auto_enabled
+        return next
+      })
+      toast(configT('configuration:settingsPage.messages.saveFailed'), 'error')
+    } finally {
+      setAiAutoSaving(false)
+    }
+  }
 
   // 按“重要性”排序：常用优先，低频靠后
   const jumpItems: Array<{ id: string; label: string; hint?: string }> = [
@@ -790,6 +825,25 @@ export default function SettingsPage() {
               <Plus className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">{configT('configuration:settingsPage.ai.addProvider')}</span>
             </Button>
+          </div>
+          <div className="mb-4 rounded-xl border border-border/60 bg-accent/20 p-3.5">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-[12px] font-medium text-foreground">{configT('configuration:settingsPage.ai.autoTitle')}</span>
+                  <span className={`rounded-full px-1.5 py-0.5 text-[10px] ${aiAutoOn ? 'bg-emerald-500/10 text-emerald-600' : 'bg-muted text-muted-foreground'}`}>
+                    {configT(aiAutoOn ? 'configuration:settingsPage.ai.autoOn' : 'configuration:settingsPage.ai.autoOff')}
+                  </span>
+                </div>
+                <p className="mt-1 text-[11px] leading-4 text-muted-foreground">{configT('configuration:settingsPage.ai.autoDescription')}</p>
+              </div>
+              <Switch
+                checked={aiAutoOn}
+                disabled={aiAutoSaving}
+                onCheckedChange={checked => void setAiAutoEnabled(checked)}
+                aria-label={configT('configuration:settingsPage.ai.autoTitle')}
+              />
+            </div>
           </div>
           {services.length === 0 ? (
             <p className="text-[13px] text-muted-foreground text-center py-6">{configT('configuration:settingsPage.ai.empty')}</p>

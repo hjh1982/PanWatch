@@ -31,6 +31,7 @@ def scheduler_fixture(monkeypatch, *, mode="single", markets=(), result=None):
     })
     record = Mock()
     monkeypatch.setattr(agent_scheduler, "record_agent_run", record)
+    monkeypatch.setattr(agent_scheduler, "is_ai_auto_enabled", lambda db=None: True)
     return scheduler, agent, context, record
 
 
@@ -48,6 +49,19 @@ def test_all_closed_markets_do_not_execute_or_record_report(monkeypatch):
         monkeypatch, markets=[MarketCode.CN, MarketCode.CN],
     )
     asyncio.run(scheduler._run_agent("intraday_monitor"))
+    agent.run_single.assert_not_awaited()
+    record.assert_not_called()
+
+
+def test_scheduled_run_is_skipped_when_auto_ai_disabled(monkeypatch):
+    scheduler, agent, _, record = scheduler_fixture(
+        monkeypatch, markets=[MarketCode.HK],
+    )
+    monkeypatch.setattr(agent_scheduler, "is_ai_auto_enabled", lambda db=None: False)
+    builder = Mock(side_effect=AssertionError("disabled auto AI must not build context"))
+    scheduler.set_context_builder(builder)
+    asyncio.run(scheduler._run_agent("intraday_monitor"))
+    builder.assert_not_called()
     agent.run_single.assert_not_awaited()
     record.assert_not_called()
 

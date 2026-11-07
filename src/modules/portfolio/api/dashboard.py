@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from src.platform.runtime.config import Settings
 from src.modules.strategy.strategy_engine import get_strategy_stats, list_strategy_signals
 from src.platform.ai.ai_failover import get_configured_failover_client
+from src.platform.ai.auto_policy import is_ai_auto_enabled
 from src.platform.persistence.database import get_db
 from src.platform.persistence.models import (
     AnalysisHistory,
@@ -434,23 +435,26 @@ async def curate_today(req: CurateRequest, db: Session = Depends(get_db)):
     )
 
     items: list[dict] = []
-    try:
-        content = await get_configured_failover_client(db, req.model_id).chat(
-            system_prompt, user_content, temperature=0.3
-        )
-        for line in (content or "").splitlines():
-            parts = line.split("|")
-            idx_raw = parts[0].strip().rstrip(".、) ")
-            if len(parts) >= 3 and idx_raw.isdigit():
-                i = int(idx_raw)
-                if 0 <= i < len(cands):
-                    try:
-                        imp = int(re.sub(r"[^0-9]", "", parts[1]) or 0)
-                    except Exception:
-                        imp = 0
-                    items.append({"index": i, "importance": imp, "why": parts[2].strip()})
-    except Exception as e:
-        logger.debug(f"curate AI 失败,按原序兜底: {e}")
+    if not is_ai_auto_enabled(db):
+        logger.debug("自动 AI 未开启,首页策展按原序兜底")
+    else:
+        try:
+            content = await get_configured_failover_client(db, req.model_id).chat(
+                system_prompt, user_content, temperature=0.3
+            )
+            for line in (content or "").splitlines():
+                parts = line.split("|")
+                idx_raw = parts[0].strip().rstrip(".、) ")
+                if len(parts) >= 3 and idx_raw.isdigit():
+                    i = int(idx_raw)
+                    if 0 <= i < len(cands):
+                        try:
+                            imp = int(re.sub(r"[^0-9]", "", parts[1]) or 0)
+                        except Exception:
+                            imp = 0
+                        items.append({"index": i, "importance": imp, "why": parts[2].strip()})
+        except Exception as e:
+            logger.debug(f"curate AI 失败,按原序兜底: {e}")
 
     if not items:  # 兜底:原序 + 递减重要度
         items = [

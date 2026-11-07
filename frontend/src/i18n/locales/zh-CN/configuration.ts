@@ -309,6 +309,8 @@ export const configuration = {
     ai: {
       title: 'AI 服务商 & 模型', description: '连接你的 AI 服务并设置默认模型', addProvider: '添加服务商', empty: '暂无 AI 服务商，点击“添加服务商”创建',
       addModel: '模型', discover: '嗅探模型（自动发现可用模型）', test: '测试模型', setDefault: '设为默认',
+      autoTitle: '自动 AI 行为', autoDescription: '定时 Agent、首页“今日要紧事”策展、会话自动命名、上下文自动压缩默认全部关闭。开启后这些后台行为才会调用模型；手动按钮和对话不受影响。', autoOn: '已开启', autoOff: '已关闭',
+      autoEnabled: '已开启自动 AI 行为', autoDisabled: '已关闭自动 AI 行为',
     },
     notifications: { title: '通知渠道', description: '推送到 Telegram/Bark 等渠道', add: '添加', empty: '暂无通知渠道，点击“添加”创建', sendTest: '发送测试', setDefault: '设为默认' },
     timezone: { display: '显示与提醒到期时间：{{timezone}}（浏览器时区）', execution: '任务调度与通知静默时段：{{timezone}}。修改部署配置 TZ 并重启服务可更改。', market: '交易日期与交易时段按各交易所时区计算。', quietHours: '静默时段按 {{timezone}} 判断。' },
@@ -320,7 +322,7 @@ export const configuration = {
         'green-up': { label: '绿涨红跌', description: '所有界面固定使用国际市场习惯' },
       },
     },
-    system: { title: '系统', description: '偏好与高级选项。修改后立即生效。', searchPlaceholder: '搜索设置项（描述 / key）', stockLinkXueqiu: '雪球', settingDescriptions: { http_proxy: 'HTTP 代理地址（配置后行情、新闻、AI 和通知统一走此代理）', notify_quiet_hours: '通知静默时间段（HH:MM-HH:MM，空为关闭）', notify_retry_attempts: '通知失败重试次数（不含首次）', notify_retry_backoff_seconds: '通知重试退避秒数（基数）', notify_dedupe_ttl_overrides: '通知幂等窗口覆盖（JSON，空为默认）', stock_link_platform: '股票链接平台（点击股票代码跳转的行情网站）', panwatch_base_url: 'PanWatch 公开访问地址（用于通知里的分析详情页链接，如 https://panwatch.example.com）' } },
+    system: { title: '系统', description: '偏好与高级选项。修改后立即生效。', searchPlaceholder: '搜索设置项（描述 / key）', stockLinkXueqiu: '雪球', settingDescriptions: { http_proxy: 'HTTP 代理地址（配置后行情、新闻、AI 和通知统一走此代理）', ai_auto_enabled: '自动 AI 行为总开关（定时 Agent、首页策展、自动命名、自动压缩，默认关闭）', notify_quiet_hours: '通知静默时间段（HH:MM-HH:MM，空为关闭）', notify_retry_attempts: '通知失败重试次数（不含首次）', notify_retry_backoff_seconds: '通知重试退避秒数（基数）', notify_dedupe_ttl_overrides: '通知幂等窗口覆盖（JSON，空为默认）', stock_link_platform: '股票链接平台（点击股票代码跳转的行情网站）', panwatch_base_url: 'PanWatch 公开访问地址（用于通知里的分析详情页链接，如 https://panwatch.example.com）' } },
     pack: {
       importMode: '导入模式', merge: '合并更新（推荐）',
       chooseExport: '选择导出模块', chooseExportDescription: '配置包只包含勾选的模块，导入时还可以再次筛选。', sensitive: '含凭据',

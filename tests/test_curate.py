@@ -12,6 +12,7 @@ class _FakeAI:
 
 def test_curate_orders_by_importance(monkeypatch):
     """AI 返回的重要度用于降序排序,并带 why。"""
+    monkeypatch.setattr(dashboard, "is_ai_auto_enabled", lambda db=None: True)
     monkeypatch.setattr(dashboard, "get_configured_failover_client", lambda db, mid=None: _FakeAI("0|40|小异动\n1|90|提醒触发"))
     req = dashboard.CurateRequest(candidates=[
         dashboard.CurateCandidate(type="watch", symbol="A", name="甲", signal="x"),
@@ -31,6 +32,7 @@ def test_curate_fallback_on_ai_fail(monkeypatch):
     """AI 失败时按原序兜底,不报错。"""
     class _Boom:
         async def chat(self, *a, **k): raise RuntimeError("boom")
+    monkeypatch.setattr(dashboard, "is_ai_auto_enabled", lambda db=None: True)
     monkeypatch.setattr(dashboard, "get_configured_failover_client", lambda db, mid=None: _Boom())
     req = dashboard.CurateRequest(candidates=[dashboard.CurateCandidate(type="alert", symbol="B", name="乙", signal="y")])
     db = SessionLocal()
@@ -40,3 +42,23 @@ def test_curate_fallback_on_ai_fail(monkeypatch):
         db.close()
     assert len(res["items"]) == 1
     assert res["items"][0]["index"] == 0
+
+
+def test_curate_skips_ai_when_auto_disabled(monkeypatch):
+    """自动 AI 关闭时不调用模型,直接按原序兜底。"""
+    def _no_client(*a, **k):
+        raise AssertionError("auto AI disabled must not build a client")
+
+    monkeypatch.setattr(dashboard, "is_ai_auto_enabled", lambda db=None: False)
+    monkeypatch.setattr(dashboard, "get_configured_failover_client", _no_client)
+    req = dashboard.CurateRequest(candidates=[
+        dashboard.CurateCandidate(type="alert", symbol="B", name="乙", signal="已触发"),
+        dashboard.CurateCandidate(type="watch", symbol="A", name="甲", signal="异动"),
+    ])
+    db = SessionLocal()
+    try:
+        res = asyncio.run(dashboard.curate_today(req, db))
+    finally:
+        db.close()
+    assert [item["index"] for item in res["items"]] == [0, 1]
+    assert res["items"][0]["why"] == "已触发"

@@ -22,6 +22,7 @@ from pan_agent import (
     RuntimeEvent,
 )
 
+from src.platform.ai.auto_policy import is_ai_auto_enabled
 from src.platform.ai.errors import descriptor_for_code
 from src.platform.persistence.database import SessionLocal
 from src.platform.tasking.contracts import TaskEventType, TaskStatus
@@ -185,6 +186,9 @@ class AssistantTaskRunner:
             raise
 
     def _schedule_title(self, conversation_id: int) -> None:
+        # 自动 AI 总开关:关闭时不自动起标题任务(仍可在会话里手动重命名)。
+        if not is_ai_auto_enabled():
+            return
         if conversation_id in self._title_tasks:
             return
         worker = asyncio.create_task(self._generate_title(conversation_id))

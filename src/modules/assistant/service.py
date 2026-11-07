@@ -30,6 +30,7 @@ from src.platform.ai.ai_failover import (
     build_failover_client,
     get_configured_failover_client,
 )
+from src.platform.ai.auto_policy import is_ai_auto_enabled
 from src.platform.persistence.models import (
     AIModel,
     AIService,
@@ -368,6 +369,7 @@ class AssistantService:
             existing_summary_message_count=latest.source_message_count if latest else 0,
             mode=mode,
             force_compress=force_compress,
+            auto_compress=is_ai_auto_enabled(self._repository.session),
             page_context=conversation.initial_context,
             tool_schemas=self._context_tool_schemas(),
             budget=self._context_budget(),

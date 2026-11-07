@@ -125,3 +125,42 @@ def test_portfolio_only_sums_today_for_open_markets(monkeypatch):
             assert metadata["accounts"][0]["positions"][1]["quantity"] == 2
     finally:
         engine.dispose()
+
+
+def test_daily_pnl_includes_same_day_buys_at_trade_price(monkeypatch):
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session
+    from src.platform.persistence.database import Base
+    from src.platform.persistence.models import Account, AccountTransaction, Stock, Position
+    from src.modules.portfolio.api import accounts as api
+
+    freeze(monkeypatch, datetime(2026, 11, 6, 16, tzinfo=ZoneInfo("Asia/Shanghai")))
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    try:
+        with Session(engine) as db:
+            account = Account(name="Default", available_funds=0, enabled=True)
+            stock = Stock(symbol="159915", name="创业板ETF易方达", market="CN")
+            db.add_all([account, stock])
+            db.flush()
+            db.add_all([
+                Position(account_id=account.id, stock_id=stock.id,
+                         cost_price=2.508775875, quantity=80000),
+                AccountTransaction(account_id=account.id, stock_id=stock.id, side="buy",
+                                   quantity=30000, price=2.476, amount=74280.0, fee=8.17,
+                                   traded_at=datetime(2026, 11, 6, 7, 57)),
+            ])
+            db.commit()
+            monkeypatch.setattr(api, "_fetch_quotes_for_stocks", lambda _: {
+                "159915": {"market": "CN", "current_price": 2.480, "prev_close": 2.584,
+                           "change_pct": -4.02, "quote_date": "2026-11-06"},
+            })
+            result = api.get_portfolio_summary(db=db)
+            row = result["accounts"][0]["positions"][0]
+            assert row["prev_close"] == 2.584
+            assert row["day_start_quantity"] == 50000
+            assert row["day_net_invested"] == 74288.17
+            assert row["daily_pnl"] == -5088.17
+            assert result["total"]["total_daily_pnl"] == -5088.17
+    finally:
+        engine.dispose()

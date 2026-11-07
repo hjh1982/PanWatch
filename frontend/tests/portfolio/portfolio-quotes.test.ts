@@ -52,6 +52,26 @@ describe('daily portfolio quote semantics', () => {
     })!
     expect(merged.total.total_daily_pnl).toBe(100)
   })
+
+  it('prices same-day buys from their trade cost instead of yesterday close', () => {
+    const held: Position = {
+      ...position('CN', '159915'),
+      cost_price: 2.508775875, quantity: 80000,
+      current_price: null, current_price_cny: null, change_pct: null,
+      market_value: null, market_value_cny: null, pnl: null, pnl_pct: null,
+      daily_pnl: null, daily_pnl_pct: null, prev_close: 2.584,
+      day_start_quantity: 50000, day_net_invested: 74288.17,
+    }
+    const merged = mergePortfolioQuotes(portfolio([held]), {
+      'CN:159915': {
+        current_price: 2.480, change_pct: -4.02, prev_close: 2.584,
+        daily_move_status: 'current',
+      },
+    })!
+    // 昨收 2.584 × 50000 + 今日买入 74288.17 对比收盘市值，而不是把 8 万份都按昨收计价。
+    expect(merged.accounts[0].positions[0].daily_pnl).toBeCloseTo(-5088.17, 2)
+    expect(merged.total.total_daily_pnl).toBeCloseTo(-5088.17, 2)
+  })
 })
 
 

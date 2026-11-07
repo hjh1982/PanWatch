@@ -5,6 +5,7 @@ from typing import Callable
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from src.modules.automation.base import BaseAgent, AgentContext
+from src.platform.ai.auto_policy import is_ai_auto_enabled
 from src.platform.ai.errors import diagnostic_ai_error_message
 from src.platform.marketdata.collectors.kline_collector import kline_source
 from src.modules.automation.agent_runs import record_agent_run
@@ -80,6 +81,11 @@ class AgentScheduler:
         # must not create model clients, perform collection, or emit failed runs.
         if stock_keys is not None and not any(market_allowed(agent_name, market) for market, _symbol in stock_keys):
             logger.debug("[调度] %s 关联市场不满足交易日/时段，跳过", agent_name)
+            return
+
+        # 自动 AI 总开关:关闭时跳过所有定时执行;手动触发不经过本方法。
+        if not is_ai_auto_enabled():
+            logger.debug("[调度] 自动 AI 未开启，跳过 %s 的定时执行", agent_name)
             return
 
         start = time.monotonic()

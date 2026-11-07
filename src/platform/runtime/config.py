@@ -17,6 +17,8 @@ class Settings(BaseSettings):
     ai_base_url: str = "https://open.bigmodel.cn/api/paas/v4"
     ai_api_key: str = ""
     ai_model: str = "glm-4"
+    # 自动 AI 行为总开关(定时 Agent/首页策展/自动命名/自动压缩),默认关闭
+    ai_auto_enabled: bool = False
 
     # Assistant context engineering. The compression model is optional: when
     # unset, the host reuses the configured default assistant model.

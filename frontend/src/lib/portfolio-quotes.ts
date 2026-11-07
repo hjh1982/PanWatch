@@ -1,6 +1,7 @@
 export interface DisplayQuote {
   current_price: number | null
   change_pct: number | null
+  prev_close?: number | null
   daily_move_status?: string
   quote_date?: string | null
 }
@@ -24,6 +25,9 @@ export interface Position {
   current_price: number | null
   current_price_cny: number | null  // 人民币价格（港股换算后）
   change_pct: number | null
+  prev_close?: number | null
+  day_start_quantity?: number | null  // 今日开盘时的持仓数量（不含今日买入/卖出）
+  day_net_invested?: number | null  // 今日买入含费 - 今日卖出净额（原币种）
   market_value: number | null
   market_value_cny: number | null  // 人民币市值
   pnl: number | null
@@ -72,6 +76,7 @@ export const toQuoteMap = (rows: QuoteResponse[]): Record<string, DisplayQuote> 
     map[`${item.market}:${item.symbol}`] = {
       current_price: item.current_price ?? null,
       change_pct: item.change_pct ?? null,
+      prev_close: item.prev_close ?? null,
       daily_move_status: item.daily_move_status,
       quote_date: item.quote_date,
     }
@@ -129,11 +134,14 @@ export const mergePortfolioQuotes = (
 
       if (daily_move_status === 'closed' || daily_move_status === 'pre_market') {
         daily_pnl = 0
-      } else if (current_price != null && change_pct != null && change_pct !== -100) {
-        const prev = current_price / (1 + change_pct / 100)
-        if (isFinite(prev) && prev > 0) {
-          daily_pnl = round2((current_price - prev) * pos.quantity * rate)
-          daily_pnl_pct = round2(change_pct)
+      } else if (!inactive && current_price != null) {
+        const prev = quote?.prev_close ?? pos.prev_close ??
+          (change_pct != null && change_pct !== -100 ? current_price / (1 + change_pct / 100) : null)
+        if (prev != null && isFinite(prev) && prev > 0) {
+          const startQty = pos.day_start_quantity ?? pos.quantity
+          const netInvested = pos.day_net_invested ?? 0
+          daily_pnl = round2((current_price * pos.quantity - prev * startQty - netInvested) * rate)
+          daily_pnl_pct = round2((current_price - prev) / prev * 100)
           accDailyPnl += daily_pnl
         }
       }

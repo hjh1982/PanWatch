@@ -77,6 +77,9 @@ def test_batch_agent_filters_watchlist_and_portfolio_before_analysis(monkeypatch
     scheduler.set_context_builder(lambda name: context)
     record = Mock()
     monkeypatch.setattr("src.modules.automation.agent_scheduler.record_agent_run", record)
+    monkeypatch.setattr(
+        "src.modules.automation.agent_scheduler.is_ai_auto_enabled", lambda db=None: True
+    )
     asyncio.run(scheduler._run_agent("daily_report"))
     scoped = agent.run.call_args.args[0]
     assert [stock.market for stock in scoped.watchlist] == [MarketCode.US]

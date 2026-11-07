@@ -266,6 +266,7 @@ def test_scheduler_delivery_failure_does_not_mark_generated_report_failed(monkey
     scheduler.execution_modes['daily_report'] = mode
     scheduler.set_context_builder(lambda name: context)
     monkeypatch.setattr(agent_scheduler, 'market_allowed', lambda *args: True)
+    monkeypatch.setattr(agent_scheduler, 'is_ai_auto_enabled', lambda db=None: True)
     record = Mock(); monkeypatch.setattr(agent_scheduler, 'record_agent_run', record)
     asyncio.run(scheduler._run_agent('daily_report'))
     values=record.call_args.kwargs

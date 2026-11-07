@@ -51,6 +51,7 @@ class SettingResponse(BaseModel):
 # 配置项描述
 SETTING_DESCRIPTIONS = {
     "http_proxy": "HTTP 代理地址(配置后所有对外请求含行情/新闻/AI/通知统一走此代理)",
+    "ai_auto_enabled": "自动 AI 行为总开关(定时 Agent/首页策展/自动命名/自动压缩,默认关闭)",
     "notify_quiet_hours": "通知静默时间段（HH:MM-HH:MM，空为关闭）",
     "notify_retry_attempts": "通知失败重试次数（不含首次）",
     "notify_retry_backoff_seconds": "通知重试退避秒数（基数）",
@@ -67,6 +68,7 @@ def _get_env_defaults() -> dict[str, str]:
     s = Settings()
     return {
         "http_proxy": s.http_proxy,
+        "ai_auto_enabled": "true" if s.ai_auto_enabled else "false",
         "notify_quiet_hours": s.notify_quiet_hours,
         "notify_retry_attempts": str(s.notify_retry_attempts),
         "notify_retry_backoff_seconds": str(s.notify_retry_backoff_seconds),

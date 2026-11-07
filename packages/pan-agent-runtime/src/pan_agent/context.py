@@ -342,6 +342,7 @@ class ContextEngine:
         existing_summary_message_count: int = 0,
         mode: ContextCompressionMode = ContextCompressionMode.BALANCED,
         force_compress: bool = False,
+        auto_compress: bool = True,
         page_context: str | None = None,
         tool_schemas: Sequence[object] | None = None,
         budget: ContextBudget | None = None,
@@ -388,7 +389,9 @@ class ContextEngine:
             tool_schemas=tool_schemas,
             budget=active_budget,
         )
-        should_compress = force_compress or usage_before.total_tokens >= active_budget.soft_limit_tokens
+        should_compress = force_compress or (
+            auto_compress and usage_before.total_tokens >= active_budget.soft_limit_tokens
+        )
 
         if not should_compress or not older:
             result_messages = build_messages(
