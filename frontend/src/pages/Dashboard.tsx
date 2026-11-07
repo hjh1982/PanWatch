@@ -4,6 +4,7 @@ import ReactMarkdown from 'react-markdown'
 import { AlertTriangle, Activity, ShieldAlert, ChevronDown, Newspaper, Share2, Gauge } from 'lucide-react'
 import {
   dashboardApi,
+  discoveryApi,
   portfolioApi,
   homeApi,
   type DashboardMarketIndex,
@@ -22,12 +23,14 @@ import {
   type AttributionItem,
   type PortfolioAiReview,
   type DashboardBrief,
+  type MarketMapSnapshot,
 } from '@panwatch/api'
 import { Switch } from '@panwatch/base-ui/components/ui/switch'
 import { useTranslation } from 'react-i18next'
 import { Onboarding } from '@panwatch/biz-ui/components/onboarding'
 import Sparkline from '@/components/Sparkline'
 import BenchChart from '@/components/BenchChart'
+import MarketCloudMap from '@/components/MarketCloudMap'
 import { HoldingAnnouncementsCard, PortfolioCalendarCard } from '@/components/PortfolioEventCards'
 import { formatNumber } from '@/i18n/format'
 import { marketSignTextClass } from '@/lib/market-colors'
@@ -213,6 +216,8 @@ export default function DashboardPage() {
   const [commodities, setCommodities] = useState<DashboardCommodity[]>([])
   const [fearGreed, setFearGreed] = useState<DashboardFearGreed | null>(null)
   const [fearGreedError, setFearGreedError] = useState(false)
+  const [marketMap, setMarketMap] = useState<MarketMapSnapshot | null>(null)
+  const [marketMapError, setMarketMapError] = useState(false)
   const [autoRefresh, setAutoRefresh] = useLocalStorage('panwatch_dashboard_autoRefresh', true)
   const [monitorSnapshot, setMonitorSnapshot] = useState<DashboardMonitorStock[]>([])
   const [diag, setDiag] = useState<PortfolioDiagnostics | null>(null)
@@ -278,6 +283,13 @@ export default function DashboardPage() {
         setFearGreedError(false)
       })
       .catch(() => { if (current()) setFearGreedError(true) })
+    void discoveryApi.marketMap({ market: 'CN', limit: 400 })
+      .then((value) => {
+        if (!current()) return
+        setMarketMap(value)
+        setMarketMapError(false)
+      })
+      .catch(() => { if (current()) setMarketMapError(true) })
     loadBench()
 
     // DB 简报无需等待行情；先展示返回的报告，再择新回填。
@@ -526,9 +538,6 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* A股恐贪指数：百分位 0–100 情绪温度，另附不同口径的官方对照入口 */}
-      <FearGreedCard data={fearGreed} error={fearGreedError} titleKey="dashboard.fearGreed.title" />
-
       {/* 组合速览条:今日盈亏 hero + 累计浮盈 + 60日超额 + 仓位% + mini 净值走势 */}
       <div className="card mb-3 p-4">
         {!hasHoldings ? (
@@ -617,6 +626,17 @@ export default function DashboardPage() {
           </div>
         ))}
       </div>
+
+      {/* A股恐贪指数：百分位 0–100 情绪温度，紧贴云图上方作为情绪背景 */}
+      <FearGreedCard data={fearGreed} error={fearGreedError} titleKey="dashboard.fearGreed.title" />
+
+      {/* 大盘云图:面积=总市值，颜色=涨跌幅，按东财二级行业分组 */}
+      <MarketCloudMap
+        data={marketMap}
+        loading={loading}
+        error={marketMapError}
+        onSelectStock={(symbol, market, name) => openStock(symbol, market, name)}
+      />
 
       {/* 持仓公告 + 事件日历 */}
       {hasHoldings && (

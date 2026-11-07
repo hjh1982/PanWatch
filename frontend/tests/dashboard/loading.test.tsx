@@ -2,8 +2,9 @@ import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { dashboardApi, fetchAPI, homeApi, portfolioApi } from '@panwatch/api'
+import { dashboardApi, discoveryApi, fetchAPI, homeApi, portfolioApi } from '@panwatch/api'
 import DashboardPage from '@/pages/Dashboard'
+import { MarketColorProvider } from '@/hooks/use-market-colors'
 
 vi.mock('@panwatch/api', () => ({
   dashboardApi: {
@@ -11,11 +12,18 @@ vi.mock('@panwatch/api', () => ({
     marketStatus: vi.fn(), brief: vi.fn(), curate: vi.fn(),
   },
   portfolioApi: { diagnostics: vi.fn(), benchmark: vi.fn(), attribution: vi.fn() },
+  discoveryApi: { marketMap: vi.fn(), marketMapSector: vi.fn() },
   homeApi: { alertHitsToday: vi.fn(), todos: vi.fn() },
   fetchAPI: vi.fn(),
 }))
 vi.mock('@/components/DiscoveryPanel', () => ({ default: () => null }))
 vi.mock('@panwatch/biz-ui/components/onboarding', () => ({ Onboarding: () => null }))
+
+const renderDashboard = () => render(
+  <MarketColorProvider>
+    <MemoryRouter><DashboardPage /></MemoryRouter>
+  </MarketColorProvider>,
+)
 
 function deferred<T>() {
   let resolve!: (value: T) => void
@@ -43,7 +51,7 @@ beforeEach(() => {
   vi.resetAllMocks()
   vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
   localStorage.setItem('panwatch_onboarding_completed', 'true')
-  for (const api of [dashboardApi, homeApi, portfolioApi]) {
+  for (const api of [dashboardApi, discoveryApi, homeApi, portfolioApi]) {
     for (const method of Object.values(api)) vi.mocked(method).mockReturnValue(new Promise(() => {}))
   }
   vi.mocked(fetchAPI).mockReturnValue(new Promise(() => {}))
@@ -68,7 +76,7 @@ describe('dashboard progressive loading', () => {
     vi.mocked(dashboardApi.brief).mockImplementation(type => type === 'premarket'
       ? Promise.resolve({ type, title: '快速简报', content: '已保存的报告', updated_at: '2026-10-03' })
       : new Promise(() => {}))
-    render(<MemoryRouter><DashboardPage /></MemoryRouter>)
+    renderDashboard()
     expect(await screen.findByText(/待办标的/)).toBeTruthy()
     expect(screen.getByText('快速简报')).toBeTruthy()
     expect(screen.getByText('港股')).toBeTruthy()
@@ -103,7 +111,7 @@ describe('dashboard progressive loading', () => {
         generated_at: '2026-10-24T14:00:34',
       },
     })
-    render(<MemoryRouter><DashboardPage /></MemoryRouter>)
+    renderDashboard()
 
     expect(await screen.findByText('51.6')).toBeTruthy()
     expect(screen.getByText('中性')).toBeTruthy()
@@ -115,7 +123,7 @@ describe('dashboard progressive loading', () => {
 
   it('shows an unavailable note when fear & greed cannot load', async () => {
     vi.mocked(dashboardApi.fearGreed).mockRejectedValue(new Error('offline'))
-    render(<MemoryRouter><DashboardPage /></MemoryRouter>)
+    renderDashboard()
 
     expect(await screen.findByText('恐贪指数暂不可用')).toBeTruthy()
   })
@@ -129,7 +137,7 @@ describe('dashboard progressive loading', () => {
       { symbol: '000933', name: '神火股份', market: 'CN', return_pct: 1.08, weight_pct: 13.3, contribution_pct: 0.14 },
       { symbol: '01898', name: '中煤能源', market: 'HK', return_pct: -13.73, weight_pct: 5.6, contribution_pct: -0.76 },
     ] })
-    render(<MemoryRouter><DashboardPage /></MemoryRouter>)
+    renderDashboard()
 
     const toggle = await screen.findByRole('button', { name: /查看全部贡献度/ })
     expect(screen.queryByText('区间涨跌')).toBeNull()
@@ -142,11 +150,12 @@ describe('dashboard progressive loading', () => {
   })
 
   it('enables scheduled refresh by default', async () => {
-    render(<MemoryRouter><DashboardPage /></MemoryRouter>)
+    renderDashboard()
 
     const autoSwitch = await screen.findByRole('switch')
     expect(autoSwitch.getAttribute('data-state')).toBe('checked')
-    expect(localStorage.getItem('panwatch_dashboard_autoRefresh')).toBe('true')
+    // 持久化发生在 useEffect 中，开关渲染可能先于落盘。
+    await waitFor(() => expect(localStorage.getItem('panwatch_dashboard_autoRefresh')).toBe('true'))
   })
 
   it('ignores the old benchmark response after a newer refresh finishes', async () => {
@@ -160,7 +169,7 @@ describe('dashboard progressive loading', () => {
     vi.mocked(homeApi.todos).mockResolvedValue({ todos: [] })
     vi.mocked(dashboardApi.marketStatus).mockResolvedValue([])
     localStorage.setItem('panwatch_dashboard_autoRefresh', 'false')
-    const { container } = render(<MemoryRouter><DashboardPage /></MemoryRouter>)
+    const { container } = renderDashboard()
     const autoSwitch = screen.getByRole('switch')
     await waitFor(() => expect(dashboardApi.curate).toHaveBeenCalledTimes(1))
     // 打开定时刷新开关：开启时立即触发一次加载
