@@ -31,7 +31,48 @@ export interface HotBoardItem {
   turnover: number | null
 }
 
+export interface MarketMapItem {
+  symbol: string
+  market: string
+  name: string
+  price: number | null
+  change_pct: number | null
+  total_market_value: number | null
+  industry: string | null
+  change_amount?: number | null
+}
+
+export interface MarketMapStats {
+  total: number
+  up: number
+  flat: number
+  down: number
+  amount: number | null
+  as_of: number | null
+}
+
+export interface MarketMapSnapshot {
+  items: MarketMapItem[]
+  stats: MarketMapStats
+}
+
 export const discoveryApi = {
+  marketMap: (params?: { market?: 'CN'; limit?: number }) =>
+    fetchAPI<MarketMapSnapshot>(
+      withQuery('/discovery/market-map', {
+        market: params?.market,
+        limit: params?.limit,
+      })
+    ),
+
+  marketMapSector: (params: { industry: string; market?: 'CN' }) =>
+    fetchAPI<{ items: MarketMapItem[]; count: number }>(
+      withQuery('/discovery/market-map/sector', {
+        industry: params.industry,
+        market: params.market,
+      })
+    ),
+
   listHotStocks: (params?: {
     market?: 'CN' | 'HK' | 'US'
     mode?: 'turnover' | 'gainers' | 'for_you'

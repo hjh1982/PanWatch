@@ -14,7 +14,7 @@ from __future__ import annotations
 from typing import Any
 
 from marketdata.http import market_get
-from marketdata.types import HotBoard, HotStock
+from marketdata.types import HotBoard, HotStock, MarketMapSnapshot, MarketMapStock
 
 # push2 occasionally accepts the TCP connection and closes it before sending
 # headers in desktop/NAS proxy environments. push2delay exposes the same clist
@@ -22,6 +22,10 @@ from marketdata.types import HotBoard, HotStock
 _STOCKS_API = "https://push2delay.eastmoney.com/api/qt/clist/get"
 _BOARDS_API = "https://push2delay.eastmoney.com/api/qt/clist/get"
 _HOST_KEY = "push2.eastmoney.com"
+
+# 东财「大盘星图」:baseinfo 给全量代码/东财二级行业,quotedata 给全量行情。
+_HOTMAP_API = "https://quote.eastmoney.com/stockhotmap/api"
+_HOTMAP_HOST_KEY = "quote.eastmoney.com"
 
 _HEADERS = {
     "User-Agent": (
@@ -38,6 +42,40 @@ def _normalize_diff(data: dict | None) -> list[dict]:
     if isinstance(diff, dict):
         return list(diff.values())
     return diff
+
+
+def _to_float(value: Any) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _hotmap_stock_meta(rows: list[str]) -> dict[tuple[str, str], tuple[str, int]]:
+    """baseinfo: bk1|bk2|bk3|name|market|code|labels。"""
+    meta: dict[tuple[str, str], tuple[str, int]] = {}
+    for row in rows:
+        parts = str(row or "").split("|")
+        if len(parts) < 7:
+            continue
+        try:
+            bk2_index = int(parts[1])
+        except (TypeError, ValueError):
+            continue
+        key = (parts[4].strip(), parts[5].strip())
+        if key[0] and key[1]:
+            meta[key] = (parts[3].strip(), bk2_index)
+    return meta
+
+
+def _hotmap_industry_names(rows: list[str]) -> dict[int, str]:
+    """bk2: name|market|code|bksort,下标即 baseinfo 的 bk2_index。"""
+    names: dict[int, str] = {}
+    for index, row in enumerate(rows):
+        name = str(row or "").split("|", 1)[0].strip()
+        if name:
+            names[index] = name
+    return names
 
 
 class DiscoveryVendor:
@@ -186,17 +224,113 @@ class DiscoveryVendor:
                 continue
         return result
 
-    def _get_json(self, url: str, *, params: dict, proxy: str | None) -> dict[str, Any]:
+    def market_map(
+        self,
+        *,
+        market: str = "CN",
+        limit: int = 400,
+        proxy: str | None = None,
+    ) -> MarketMapSnapshot:
+        """东财大盘星图:全市场快照 + 总市值前 N 的个股(东财二级行业分组)。"""
+        market = (market or "CN").upper()
+        if market != "CN":
+            return MarketMapSnapshot(stocks=[], total=0, up=0, flat=0, down=0)
+
+        base = self._get_json(
+            f"{_HOTMAP_API}/getquotebasedata?hash=",
+            params=None,
+            proxy=proxy,
+            host_key=_HOTMAP_HOST_KEY,
+            timeout=20,
+        )
+        quotes = self._get_json(
+            f"{_HOTMAP_API}/getquotedata?quotedata_hash=",
+            params=None,
+            proxy=proxy,
+            host_key=_HOTMAP_HOST_KEY,
+            timeout=20,
+        )
+        if not base.get("baseinfo") or not quotes.get("data"):
+            raise RuntimeError("东财大盘星图返回空数据")
+
+        meta = _hotmap_stock_meta(base.get("baseinfo") or [])
+        industries = _hotmap_industry_names(base.get("bk2") or [])
+
+        stocks: list[MarketMapStock] = []
+        up = flat = down = 0
+        amount = 0.0
+        for row in quotes.get("data") or []:
+            if not isinstance(row, str) or "|" not in row:
+                continue  # 个别股票是密文行,跳过
+            parts = row.split("|")
+            if len(parts) < 15:
+                continue
+            info = meta.get((parts[0], parts[1]))
+            change = _to_float(parts[3])
+            if not info or change is None:
+                continue
+
+            change_pct = change / 100
+            if change_pct > 0.005:
+                up += 1
+            elif change_pct < -0.005:
+                down += 1
+            else:
+                flat += 1
+
+            turnover = _to_float(parts[10])
+            if turnover:
+                amount += turnover
+
+            price = _to_float(parts[12])
+            cap = _to_float(parts[14])
+            delta = _to_float(parts[2])
+            name, bk2_index = info
+            stocks.append(
+                MarketMapStock(
+                    symbol=parts[1],
+                    market=market,
+                    name=name,
+                    price=price / 100 if price is not None else None,
+                    change_pct=change_pct,
+                    total_market_value=cap * 1_000_000 if cap is not None else None,
+                    industry=industries.get(bk2_index),
+                    change_amount=delta / 100 if delta is not None else None,
+                )
+            )
+
+        stocks.sort(key=lambda item: item.total_market_value or 0, reverse=True)
+        keep = max(1, min(int(limit), 6000))
+        as_of = quotes.get("quotetime")
+        return MarketMapSnapshot(
+            stocks=stocks[:keep],
+            total=up + flat + down,
+            up=up,
+            flat=flat,
+            down=down,
+            amount=amount or None,
+            as_of=int(as_of) if isinstance(as_of, (int, float)) else None,
+        )
+
+    def _get_json(
+        self,
+        url: str,
+        *,
+        params: dict | None,
+        proxy: str | None,
+        host_key: str = _HOST_KEY,
+        timeout: float = 10,
+    ) -> dict[str, Any]:
         data = market_get(
             url,
-            host_key=_HOST_KEY,
+            host_key=host_key,
             params=params,
             headers=_HEADERS,
             proxy=proxy,
             verify=False,
             parse="json",
             retries=1,
-            timeout=10,
+            timeout=timeout,
             min_interval_s=0.0,
             log_label="发现榜单",
         )

@@ -92,3 +92,86 @@ def test_board_stocks_empty_code_returns_empty(monkeypatch):
     monkeypatch.setattr(dv, "market_get", lambda *a, **k: called.append(1))
     assert dv.DiscoveryVendor().board_stocks(board_code="", mode="gainers", limit=20) == []
     assert called == []
+
+
+def _hotmap_row(market: str, code: str, zdf: str, cje: str, zxj: str, zsz: str, zde: str = "0") -> str:
+    # market|code|zde|zdf|zdf_3|zdf_5|zdf_10|zdf_20|zdf_60|zdf_nc|cje|hsl|zxj|ltsz|zsz|lb|zljzb
+    return "|".join([market, code, zde, zdf, "0", "0", "0", "0", "0", "0", cje, "1.2", zxj, "0", zsz, "0", "0"])
+
+
+def test_market_map_maps_stocks_and_breadth(monkeypatch):
+    base = {
+        "baseinfo": [
+            "0|0|0|建设银行|CN|601939|",
+            "0|1|0|长鑫科技|CN|688981|",
+            "0|0|0|贵州茅台|CN|600519|",
+        ],
+        "bk2": ["银行Ⅱ|0|BK0475|1", "半导体|1|BK1036|2"],
+    }
+    quotes = {
+        "quotetime": 1793950482,
+        "data": [
+            _hotmap_row("CN", "601939", "214", "100000000", "1000", "200000", "25"),
+            _hotmap_row("CN", "688981", "-498", "200000000", "5000", "100000"),
+            _hotmap_row("CN", "600519", "0", "300000000", "170000", "300000"),
+            "ENCRYPTEDBLOB",  # 密文行,无分隔符
+            _hotmap_row("CN", "999999", "100", "1", "1", "1"),  # baseinfo 缺失
+        ],
+    }
+    calls = []
+
+    def fake_market_get(url, **kwargs):
+        calls.append((url, kwargs.get("host_key"), kwargs.get("timeout")))
+        return base if "getquotebasedata" in url else quotes
+
+    monkeypatch.setattr(dv, "market_get", fake_market_get)
+    out = dv.DiscoveryVendor().market_map(market="CN", limit=2)
+
+    assert len(calls) == 2
+    assert all(host == "quote.eastmoney.com" for _, host, _ in calls)
+    assert all(timeout == 20 for _, _, timeout in calls)
+    assert [s.symbol for s in out.stocks] == ["600519", "601939"]
+    top = out.stocks[1]
+    assert top.name == "建设银行"
+    assert top.industry == "银行Ⅱ"
+    assert top.price == 10.0
+    assert top.change_pct == 2.14
+    assert top.change_amount == 0.25
+    assert top.total_market_value == 200000 * 1_000_000
+    assert out.stocks[0].change_pct == 0
+    assert out.stocks[0].industry == "银行Ⅱ"
+    # 涨跌家数按全量(不含缺失 meta 的行)统计,而不是按截断后的 limit。
+    assert (out.total, out.up, out.flat, out.down) == (3, 1, 1, 1)
+    assert out.amount == 600000000.0
+    assert out.as_of == 1793950482
+
+
+def test_market_map_only_supports_cn(monkeypatch):
+    calls = []
+    monkeypatch.setattr(dv, "market_get", lambda *a, **k: calls.append(1))
+    out = dv.DiscoveryVendor().market_map(market="HK", limit=400)
+    assert out.stocks == [] and out.total == 0
+    assert calls == []
+
+
+def test_market_map_raises_on_empty_payload(monkeypatch):
+    monkeypatch.setattr(dv, "market_get", lambda *a, **k: {})
+    try:
+        dv.DiscoveryVendor().market_map()
+    except RuntimeError as exc:
+        assert "空数据" in str(exc)
+    else:
+        raise AssertionError("expected RuntimeError")
+
+
+def test_market_map_defaults_missing_values_to_none(monkeypatch):
+    base = {"baseinfo": ["0|0|0|停牌股|CN|600001|"], "bk2": ["综合|0|BK0001|1"]}
+    quotes = {"data": [_hotmap_row("CN", "600001", "5", "0", "-", "-")]}
+    monkeypatch.setattr(dv, "market_get",
+                        lambda url, **k: base if "getquotebasedata" in url else quotes)
+    out = dv.DiscoveryVendor().market_map(market="CN", limit=400)
+    stock = out.stocks[0]
+    assert stock.price is None and stock.total_market_value is None
+    assert stock.change_pct == 0.05
+    assert out.amount is None
+    assert out.as_of is None

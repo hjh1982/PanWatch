@@ -266,6 +266,121 @@ async def get_hot_stocks(
     return data
 
 
+def _market_map_item(it) -> dict:
+    return {
+        "symbol": it.symbol,
+        "market": it.market,
+        "name": it.name,
+        "price": it.price,
+        "change_pct": it.change_pct,
+        "total_market_value": it.total_market_value,
+        "industry": it.industry,
+        "change_amount": it.change_amount,
+    }
+
+
+@router.get("/market-map")
+async def get_market_map(market: str = "CN", limit: int = 400):
+    """东财大盘星图:全市场涨跌家数 + 总市值前 N 的个股快照。"""
+
+    market = _normalize_market(market)
+    if market != "CN":
+        raise api_error(400, "market_map_market_unsupported", "大盘星图目前仅支持 A 股")
+    limit = max(20, min(int(limit), 1200))
+
+    key = f"market_map:{market}:{limit}"
+    cached = _cache_get(key, ttl_s=90)
+    if cached is not None:
+        return cached
+
+    proxy = _resolve_proxy() or None
+    collector = EastMoneyDiscoveryCollector(proxy=proxy)
+    try:
+        snapshot = await collector.fetch_market_map(market=market, limit=limit)
+    except (httpx.ConnectTimeout, httpx.ConnectError, httpx.ProxyError) as e:
+        logger.warning(f"market_map connect timeout: {e!r}")
+        raise api_error(
+            503,
+            "market_map_timeout",
+            "大盘星图数据源连接超时（可能需要配置代理 http_proxy）",
+        ) from e
+    except Exception as e:
+        logger.warning(f"market_map failed: {type(e).__name__}: {e!r}")
+        raise api_error(503, "market_map_unavailable", "大盘星图数据源不可用") from e
+
+    items = [
+        _market_map_item(it)
+        for it in snapshot.stocks
+        if it.symbol and it.total_market_value
+    ]
+    if not items:
+        raise api_error(503, "market_map_unavailable", "大盘星图数据源不可用")
+
+    payload = {
+        "items": items,
+        "stats": {
+            "total": snapshot.total,
+            "up": snapshot.up,
+            "flat": snapshot.flat,
+            "down": snapshot.down,
+            "amount": snapshot.amount,
+            "as_of": snapshot.as_of,
+        },
+    }
+    _cache_set(key, payload)
+    return payload
+
+
+@router.get("/market-map/sector")
+async def get_market_map_sector(industry: str = "", market: str = "CN"):
+    """板块全量成分股(悬停详情用):按东财二级行业名称从全市场快照过滤。"""
+
+    market = _normalize_market(market)
+    name = (industry or "").strip()
+    if market != "CN":
+        raise api_error(400, "market_map_market_unsupported", "大盘星图目前仅支持 A 股")
+    if not name:
+        raise api_error(400, "market_map_industry_required", "缺少板块名称")
+
+    key = f"market_map_sector:{market}:{name}"
+    cached = _cache_get(key, ttl_s=90)
+    if cached is not None:
+        return cached
+
+    proxy = _resolve_proxy() or None
+    all_items = _cache_get(f"market_map_full:{market}", ttl_s=90)
+    if all_items is None:
+        collector = EastMoneyDiscoveryCollector(proxy=proxy)
+        try:
+            snapshot = await collector.fetch_market_map(market=market, limit=6000)
+        except (httpx.ConnectTimeout, httpx.ConnectError, httpx.ProxyError) as e:
+            logger.warning(f"market_map sector connect timeout: {e!r}")
+            raise api_error(
+                503,
+                "market_map_timeout",
+                "大盘星图数据源连接超时（可能需要配置代理 http_proxy）",
+            ) from e
+        except Exception as e:
+            logger.warning(f"market_map sector failed: {type(e).__name__}: {e!r}")
+            raise api_error(503, "market_map_unavailable", "大盘星图数据源不可用") from e
+        all_items = [
+            _market_map_item(it)
+            for it in snapshot.stocks
+            if it.symbol and it.total_market_value
+        ]
+        if not all_items:
+            raise api_error(503, "market_map_unavailable", "大盘星图数据源不可用")
+        _cache_set(f"market_map_full:{market}", all_items)
+
+    items = [
+        it for it in all_items
+        if (it.get("industry") or "").strip() == name
+    ]
+    payload = {"items": items[:500], "count": len(items)}
+    _cache_set(key, payload)
+    return payload
+
+
 @router.get("/boards")
 async def get_hot_boards(
     market: str = "CN",

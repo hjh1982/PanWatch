@@ -103,6 +103,33 @@ class HotBoard:
     turnover: float | None
 
 
+@dataclass(frozen=True)
+class MarketMapStock:
+    """大盘星图个股:面积=总市值,颜色=涨跌幅。"""
+
+    symbol: str
+    market: str
+    name: str
+    price: float | None
+    change_pct: float | None
+    total_market_value: float | None
+    industry: str | None
+    change_amount: float | None = None
+
+
+@dataclass(frozen=True)
+class MarketMapSnapshot:
+    """大盘星图快照:榜单个股 + 全市场涨跌家数与成交额。"""
+
+    stocks: list[MarketMapStock]
+    total: int
+    up: int
+    flat: int
+    down: int
+    amount: float | None = None
+    as_of: int | None = None
+
+
 @dataclass
 class EventItem:
     """结构化事件(对齐 PanWatch src/collectors/events_collector.EventItem)。"""

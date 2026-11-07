@@ -18,6 +18,8 @@ from marketdata.types import (
     HotBoard,
     HotStock,
     MarginItem,
+    MarketMapSnapshot,
+    MarketMapStock,
     NewsArticle,
     NorthboundItem,
     Quote,
@@ -30,7 +32,7 @@ __version__ = "0.1.0"
 
 __all__ = [
     "MarketData", "Symbol", "Market", "Bar", "CapitalFlow", "EventItem", "FlashNews", "Fundamentals",
-    "HotStock", "HotBoard", "NewsArticle",
+    "HotStock", "HotBoard", "MarketMapStock", "MarketMapSnapshot", "NewsArticle",
     "DragonTigerItem", "MarginItem", "ShareholderItem", "DividendItem", "NorthboundItem",
     "Quote", "Request", "Response",
     "SourceConfig", "ConfigProvider", "MetricsSink",

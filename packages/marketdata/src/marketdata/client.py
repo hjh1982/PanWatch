@@ -22,6 +22,7 @@ from marketdata.types import (
     HotBoard,
     HotStock,
     MarginItem,
+    MarketMapSnapshot,
     NewsArticle,
     NorthboundItem,
     Quote,
@@ -420,3 +421,7 @@ class MarketData:
     def board_stocks(self, **kw) -> list[HotStock]:
         """板块成分股榜单(东财,市场级、不经 Engine)。"""
         return self._discovery.board_stocks(**kw)
+
+    def market_map(self, **kw) -> MarketMapSnapshot:
+        """大盘星图快照(东财,市场级、不经 Engine)。"""
+        return self._discovery.market_map(**kw)
