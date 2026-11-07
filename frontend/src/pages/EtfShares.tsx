@@ -89,6 +89,35 @@ interface MarginMetric {
   percentile?: number | null
 }
 
+interface DrawdownState {
+  date: string
+  value: number
+  high_value: number
+  high_date: string
+  drawdown_pct: number
+  velocity_slow: number | null
+  velocity_fast: number | null
+  days_since_high: number
+  max_drawdown_pct: number
+  max_drawdown_date: string
+  rebound_needed_pct: number | null
+  state: string
+}
+
+interface MarginDrawdown {
+  metric: string
+  window: number
+  slow_days: number
+  fast_days: number
+  warmup_days: number
+  history_days: number
+  dates: string[]
+  drawdown_pct: Array<number | null>
+  velocity_slow: Array<number | null>
+  velocity_fast: Array<number | null>
+  latest: DrawdownState | null
+}
+
 interface CoalStorage {
   database: string
   table: string
@@ -112,6 +141,7 @@ interface MetricsPayload {
   dates: string[]
   metrics: MarginMetric[]
   series: Record<string, Array<number | null>>
+  drawdown?: MarginDrawdown
   overlay?: {
     dates: string[]
     values: Array<number | null>
@@ -453,6 +483,27 @@ function buildScale(values: Array<number | null>, targetTicks = 5, zeroFloor = f
   return { min: lower, max: upper, step, ticks }
 }
 
+function pickYearTicks(
+  dates: string[],
+  maxTicks: number,
+): Array<{ index: number; label: string }> {
+  if (dates.length === 0) return []
+  const years = [...new Set(dates.map((date) => date.slice(0, 4)))]
+  const limit = Math.max(2, Math.trunc(maxTicks))
+  const step = Math.max(1, Math.ceil(years.length / limit))
+  const chosen = new Set(
+    years.filter((_, position) => (years.length - 1 - position) % step === 0),
+  )
+  const ticks: Array<{ index: number; label: string }> = []
+  dates.forEach((date, index) => {
+    const year = date.slice(0, 4)
+    if (chosen.has(year) && ticks.every((tick) => tick.label !== year)) {
+      ticks.push({ index, label: year })
+    }
+  })
+  return ticks
+}
+
 function pickTickIndexes(total: number, maxTicks: number): number[] {
   if (!Number.isFinite(total) || total <= 0) return []
   if (total === 1) return [0]
@@ -501,6 +552,21 @@ function buildZeroScale(values: Array<number | null>, targetTicks = 5) {
     ticks.push(Number(tick.toFixed(6)))
   }
   return { min: lower, max: upper, step, ticks }
+}
+
+function buildCeilZeroScale(values: Array<number | null>, targetTicks = 5) {
+  const finite = values.filter(
+    (value): value is number => typeof value === 'number' && Number.isFinite(value),
+  )
+  if (finite.length === 0) return null
+  const min = Math.min(0, ...finite)
+  const step = niceStep(min < 0 ? -min / Math.max(2, targetTicks - 1) : 1)
+  const lower = Math.floor(min / step) * step
+  const ticks: number[] = []
+  for (let tick = lower; tick <= step / 2; tick += step) {
+    ticks.push(Number(tick.toFixed(6)))
+  }
+  return { min: lower, max: 0, step, ticks }
 }
 
 function buildDeltas(values: Array<number | null>): Array<number | null> {
@@ -1432,6 +1498,510 @@ function MarginFlowChart({
   )
 }
 
+const DRAWDOWN_COLOR = 'hsl(var(--destructive))'
+const VELOCITY_SLOW_COLOR = '#ea580c'
+const VELOCITY_FAST_COLOR = '#f59e0b'
+const DRAWDOWN_CARD_WIDTH = 178
+const DRAWDOWN_CARD_LINE_HEIGHT = 13
+
+function MarginDrawdownChart({
+  dates,
+  drawdown,
+  velocitySlow,
+  velocityFast,
+  warmupDays,
+  drawdownLabel,
+  slowLabel,
+  fastLabel,
+  percentUnit,
+  velocityUnit,
+  annotation,
+  emptyText,
+  ariaLabel,
+}: {
+  dates: string[]
+  drawdown: Array<number | null>
+  velocitySlow: Array<number | null>
+  velocityFast: Array<number | null>
+  warmupDays: number
+  drawdownLabel: string
+  slowLabel: string
+  fastLabel: string
+  percentUnit: string
+  velocityUnit: string
+  annotation: { title: string; lines: string[] }
+  emptyText: string
+  ariaLabel: string
+}) {
+  const gradientId = useId()
+  const [hoverIndex, setHoverIndex] = useState<number | null>(null)
+
+  const model = useMemo(() => {
+    if (dates.length === 0) return null
+    const ddScale = buildCeilZeroScale(drawdown, 5)
+    const speedScale = buildZeroScale([...velocitySlow, ...velocityFast], 5)
+    if (!ddScale || !speedScale) return null
+    const innerWidth = CHART_WIDTH - DUAL_PADDING.left - DUAL_PADDING.right
+    const innerHeight = CHART_HEIGHT - DUAL_PADDING.top - DUAL_PADDING.bottom
+    const ddSpan = ddScale.max - ddScale.min || 1
+    const speedSpan = speedScale.max - speedScale.min || 1
+    const xOf = (index: number) =>
+      dates.length === 1
+        ? DUAL_PADDING.left + innerWidth / 2
+        : DUAL_PADDING.left + (index / (dates.length - 1)) * innerWidth
+    const yDd = (value: number) =>
+      DUAL_PADDING.top + innerHeight - ((value - ddScale.min) / ddSpan) * innerHeight
+    const ySpeed = (value: number) =>
+      DUAL_PADDING.top + innerHeight - ((value - speedScale.min) / speedSpan) * innerHeight
+    const pointOf = (index: number, value: number, yOf: (value: number) => number) =>
+      `${xOf(index).toFixed(2)},${yOf(value).toFixed(2)}`
+    const lineFor = (
+      segments: Array<Array<{ index: number; value: number }>>,
+      yOf: (value: number) => number,
+    ) =>
+      segments.map((segment) =>
+        segment.map((point, position) => `${position === 0 ? 'M' : 'L'}${pointOf(point.index, point.value, yOf)}`).join(' '),
+      )
+    const ddSegments = buildSegments(drawdown)
+    const areaPaths = ddSegments
+      .filter((segment) => segment.length > 1)
+      .map((segment) => {
+        const line = segment
+          .map((point, position) => `${position === 0 ? 'M' : 'L'}${pointOf(point.index, point.value, yDd)}`)
+          .join(' ')
+        const first = segment[0]
+        const last = segment[segment.length - 1]
+        return `${line} L${pointOf(last.index, 0, yDd)} L${pointOf(first.index, 0, yDd)} Z`
+      })
+    const lastSegment = ddSegments[ddSegments.length - 1]
+    const endpoint = lastSegment ? lastSegment[lastSegment.length - 1] : null
+    const xTicks = pickYearTicks(dates, 7).map((tick, position, all) => ({
+      x: xOf(tick.index),
+      label: tick.label,
+      anchor: (position === 0 ? 'start' : position === all.length - 1 ? 'end' : 'middle') as
+        | 'start'
+        | 'middle'
+        | 'end',
+    }))
+    return {
+      ddScale,
+      speedScale,
+      innerHeight,
+      xOf,
+      yDd,
+      ySpeed,
+      ddPaths: lineFor(ddSegments, yDd),
+      areaPaths,
+      slowPaths: lineFor(buildSegments(velocitySlow), ySpeed),
+      fastPaths: lineFor(buildSegments(velocityFast), ySpeed),
+      endpoint,
+      warmupRight:
+        warmupDays > 0 && warmupDays < dates.length ? xOf(warmupDays - 1) : null,
+      xTicks,
+    }
+  }, [dates, drawdown, velocitySlow, velocityFast, warmupDays])
+
+  if (!model) {
+    return (
+      <div className="flex h-[220px] items-center justify-center text-[13px] text-muted-foreground">
+        {emptyText}
+      </div>
+    )
+  }
+
+  const handlePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect()
+    if (!rect.width || dates.length === 0) return
+    const svgX = ((event.clientX - rect.left) / rect.width) * CHART_WIDTH
+    const innerWidth = CHART_WIDTH - DUAL_PADDING.left - DUAL_PADDING.right
+    if (svgX < DUAL_PADDING.left - 8 || svgX > DUAL_PADDING.left + innerWidth + 8) {
+      setHoverIndex(null)
+      return
+    }
+    const ratio = Math.min(1, Math.max(0, (svgX - DUAL_PADDING.left) / innerWidth))
+    setHoverIndex(Math.round(ratio * (dates.length - 1)))
+  }
+
+  const cardHeight = 14 + (annotation.lines.length + 1) * DRAWDOWN_CARD_LINE_HEIGHT + 6
+  const card = (() => {
+    const endpoint = model.endpoint
+    if (!endpoint) return null
+    const pointX = model.xOf(endpoint.index)
+    const pointY = model.yDd(endpoint.value)
+    return {
+      pointX,
+      pointY,
+      x: Math.max(DUAL_PADDING.left + 4, pointX - DRAWDOWN_CARD_WIDTH - 14),
+      y: Math.min(
+        Math.max(DUAL_PADDING.top + 4, pointY - cardHeight - 16),
+        CHART_HEIGHT - DUAL_PADDING.bottom - cardHeight - 4,
+      ),
+    }
+  })()
+  const hoverX = hoverIndex == null ? null : model.xOf(hoverIndex)
+  const tooltipLeft = hoverX == null ? 0 : (hoverX / CHART_WIDTH) * 100
+  const alignLeft = hoverX != null && hoverX > CHART_WIDTH * 0.62
+  const hoverRows: Array<{ label: string; color: string; value: number | null; unit: string }> = [
+    {
+      label: drawdownLabel,
+      color: DRAWDOWN_COLOR,
+      value: hoverIndex == null ? null : drawdown[hoverIndex],
+      unit: percentUnit,
+    },
+    {
+      label: slowLabel,
+      color: VELOCITY_SLOW_COLOR,
+      value: hoverIndex == null ? null : velocitySlow[hoverIndex],
+      unit: velocityUnit,
+    },
+    {
+      label: fastLabel,
+      color: VELOCITY_FAST_COLOR,
+      value: hoverIndex == null ? null : velocityFast[hoverIndex],
+      unit: velocityUnit,
+    },
+  ]
+
+  return (
+    <div
+      className="relative"
+      onPointerMove={handlePointerMove}
+      onPointerLeave={() => setHoverIndex(null)}
+    >
+      <svg
+        viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`}
+        className="h-auto w-full select-none"
+        role="img"
+        aria-label={ariaLabel}
+      >
+        <defs>
+          <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={DRAWDOWN_COLOR} stopOpacity={0.32} />
+            <stop offset="100%" stopColor={DRAWDOWN_COLOR} stopOpacity={0.06} />
+          </linearGradient>
+        </defs>
+        {model.warmupRight != null && (
+          <rect
+            x={DUAL_PADDING.left}
+            y={DUAL_PADDING.top}
+            width={Math.max(0, model.warmupRight - DUAL_PADDING.left)}
+            height={model.innerHeight}
+            fill="hsl(var(--muted))"
+            opacity={0.6}
+          />
+        )}
+        {model.ddScale.ticks.map((tick) => (
+          <g key={`dd-${tick}`}>
+            <line
+              x1={DUAL_PADDING.left}
+              x2={CHART_WIDTH - DUAL_PADDING.right}
+              y1={model.yDd(tick)}
+              y2={model.yDd(tick)}
+              stroke="hsl(var(--border))"
+              strokeWidth={0.5}
+              strokeDasharray="2 4"
+            />
+            <text
+              x={DUAL_PADDING.left - 8}
+              y={model.yDd(tick) + 3.5}
+              textAnchor="end"
+              fill="hsl(var(--muted-foreground))"
+              fontSize={10}
+            >
+              {tickLabel(tick, model.ddScale.step)}
+            </text>
+          </g>
+        ))}
+        {model.speedScale.ticks.map((tick) => (
+          <text
+            key={`speed-${tick}`}
+            x={CHART_WIDTH - DUAL_PADDING.right + 8}
+            y={model.ySpeed(tick) + 3.5}
+            textAnchor="start"
+            fill="hsl(var(--muted-foreground))"
+            fontSize={10}
+          >
+            {tickLabel(tick, model.speedScale.step)}
+          </text>
+        ))}
+        <line
+          x1={DUAL_PADDING.left}
+          x2={CHART_WIDTH - DUAL_PADDING.right}
+          y1={model.ySpeed(0)}
+          y2={model.ySpeed(0)}
+          stroke="hsl(var(--muted-foreground))"
+          strokeWidth={0.7}
+          strokeDasharray="4 3"
+          opacity={0.55}
+        />
+        {model.areaPaths.map((path, index) => (
+          <path key={`area-${index}`} d={path} fill={`url(#${gradientId})`} stroke="none" />
+        ))}
+        {model.ddPaths.map((path, index) => (
+          <path
+            key={`dd-path-${index}`}
+            d={path}
+            fill="none"
+            stroke={DRAWDOWN_COLOR}
+            strokeWidth={1.6}
+            strokeLinejoin="round"
+          />
+        ))}
+        {model.slowPaths.map((path, index) => (
+          <path
+            key={`slow-path-${index}`}
+            d={path}
+            fill="none"
+            stroke={VELOCITY_SLOW_COLOR}
+            strokeWidth={1}
+            strokeLinejoin="round"
+            opacity={0.9}
+          />
+        ))}
+        {model.fastPaths.map((path, index) => (
+          <path
+            key={`fast-path-${index}`}
+            d={path}
+            fill="none"
+            stroke={VELOCITY_FAST_COLOR}
+            strokeWidth={0.8}
+            strokeLinejoin="round"
+            opacity={0.75}
+          />
+        ))}
+        {model.xTicks.map((tick) => (
+          <text
+            key={`${tick.label}-${tick.x}`}
+            x={tick.x}
+            y={CHART_HEIGHT - 10}
+            textAnchor={tick.anchor}
+            fill="hsl(var(--muted-foreground))"
+            fontSize={10}
+          >
+            {tick.label}
+          </text>
+        ))}
+        {card && hoverIndex == null && (
+          <g className="hidden sm:block">
+            <path
+              d={`M${(card.x + DRAWDOWN_CARD_WIDTH).toFixed(2)},${(card.y + cardHeight).toFixed(2)} L${card.pointX.toFixed(2)},${card.pointY.toFixed(2)}`}
+              fill="none"
+              stroke={DRAWDOWN_COLOR}
+              strokeWidth={0.8}
+              opacity={0.7}
+            />
+            <rect
+              x={card.x}
+              y={card.y}
+              width={DRAWDOWN_CARD_WIDTH}
+              height={cardHeight}
+              rx={4}
+              fill="hsl(var(--popover))"
+              stroke="hsl(var(--border))"
+              strokeWidth={0.8}
+            />
+            <text
+              x={card.x + 8}
+              y={card.y + 14}
+              fill="hsl(var(--muted-foreground))"
+              fontSize={9.5}
+              fontFamily="ui-monospace, monospace"
+            >
+              {annotation.title}
+            </text>
+            {annotation.lines.map((line, index) => (
+              <text
+                key={line}
+                x={card.x + 8}
+                y={card.y + 14 + (index + 1) * DRAWDOWN_CARD_LINE_HEIGHT}
+                fill="hsl(var(--foreground))"
+                fontSize={10}
+              >
+                {line}
+              </text>
+            ))}
+            <circle cx={card.pointX} cy={card.pointY} r={2.6} fill={DRAWDOWN_COLOR} />
+          </g>
+        )}
+        {hoverX != null && (
+          <line
+            x1={hoverX}
+            x2={hoverX}
+            y1={DUAL_PADDING.top}
+            y2={CHART_HEIGHT - DUAL_PADDING.bottom}
+            stroke="hsl(var(--muted-foreground))"
+            strokeWidth={0.8}
+            strokeDasharray="3 3"
+            opacity={0.6}
+          />
+        )}
+      </svg>
+      {hoverIndex != null && (
+        <div
+          className="pointer-events-none absolute top-1 z-10 min-w-[190px] rounded-md border border-border bg-card px-2.5 py-2 shadow-md"
+          style={{
+            left: `${tooltipLeft}%`,
+            transform: alignLeft ? 'translateX(-100%)' : 'translateX(0)',
+          }}
+        >
+          <div className="font-mono text-[11px] text-muted-foreground">{dates[hoverIndex]}</div>
+          <div className="mt-1 space-y-0.5">
+            {hoverRows.map((row) => (
+              <div key={row.label} className="flex items-center gap-1.5 text-[11px]">
+                <span
+                  className="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
+                  style={{ backgroundColor: row.color }}
+                />
+                <span className="text-muted-foreground">{row.label}</span>
+                <span className="ml-auto whitespace-nowrap font-mono font-medium text-foreground">
+                  {formatValue(row.value, 2)}
+                  {row.unit}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+const MARGIN_STATE_KEYS = {
+  accelerating: 'etfShares.margin.drawdown.status.states.accelerating',
+  decelerating: 'etfShares.margin.drawdown.status.states.decelerating',
+  recovering: 'etfShares.margin.drawdown.status.states.recovering',
+  near_high: 'etfShares.margin.drawdown.status.states.nearHigh',
+  unknown: 'etfShares.margin.drawdown.status.states.unknown',
+  no_data: 'etfShares.margin.drawdown.status.states.noData',
+} as const
+
+type MarginStateKey = (typeof MARGIN_STATE_KEYS)[keyof typeof MARGIN_STATE_KEYS]
+
+function marginStateKey(state: string | undefined): MarginStateKey {
+  if (state && state in MARGIN_STATE_KEYS) {
+    return MARGIN_STATE_KEYS[state as keyof typeof MARGIN_STATE_KEYS]
+  }
+  return MARGIN_STATE_KEYS.no_data
+}
+
+const MARGIN_STATE_VARIANTS: Record<
+  string,
+  'default' | 'secondary' | 'destructive' | 'outline' | 'success'
+> = {
+  accelerating: 'destructive',
+  decelerating: 'default',
+  recovering: 'success',
+  near_high: 'secondary',
+  unknown: 'outline',
+  no_data: 'outline',
+}
+
+function MarginDrawdownStatus({ block }: { block: MarginDrawdown }) {
+  const { t } = useTranslation('configuration')
+  const latest = block.latest
+  const stateKey = marginStateKey(latest?.state)
+  const amountUnit = t('etfShares.margin.unit')
+  const percentUnit = t('etfShares.margin.drawdown.percentUnit')
+  const velocityUnit = t('etfShares.margin.drawdown.velocityUnit')
+  const items = latest
+    ? [
+        {
+          label: t('etfShares.margin.drawdown.status.drawdown'),
+          value: formatValue(latest.drawdown_pct, 2),
+          unit: percentUnit,
+          sub: t('etfShares.margin.drawdown.status.drawdownSub', {
+            date: latest.high_date,
+            value: formatValue(latest.high_value, 0),
+            unit: amountUnit,
+          }),
+          tone: latest.drawdown_pct < 0 ? 'text-destructive' : 'text-foreground',
+        },
+        {
+          label: t('etfShares.margin.drawdown.status.velocity', { days: block.slow_days }),
+          value: formatValue(latest.velocity_slow, 3),
+          unit: velocityUnit,
+          sub: t('etfShares.margin.drawdown.status.velocitySub', {
+            fast: block.fast_days,
+            value: formatValue(latest.velocity_fast, 3),
+            unit: velocityUnit,
+          }),
+          tone:
+            typeof latest.velocity_slow === 'number' && latest.velocity_slow < 0
+              ? 'text-destructive'
+              : 'text-foreground',
+        },
+        {
+          label: t('etfShares.margin.drawdown.status.daysSinceHigh'),
+          value: t('etfShares.margin.drawdown.status.days', { count: latest.days_since_high }),
+          unit: '',
+          sub: t('etfShares.margin.drawdown.status.daysSub', { date: latest.high_date }),
+          tone: 'text-foreground',
+        },
+        {
+          label: t('etfShares.margin.drawdown.status.maxDrawdown'),
+          value: formatValue(latest.max_drawdown_pct, 2),
+          unit: percentUnit,
+          sub: t('etfShares.margin.drawdown.status.maxDrawdownSub', {
+            date: latest.max_drawdown_date,
+          }),
+          tone: latest.max_drawdown_pct < 0 ? 'text-destructive' : 'text-foreground',
+        },
+        {
+          label: t('etfShares.margin.drawdown.status.rebound'),
+          value: formatValue(latest.rebound_needed_pct, 2),
+          unit: percentUnit,
+          sub: t('etfShares.margin.drawdown.status.reboundSub', {
+            value: formatValue(latest.high_value, 0),
+            unit: amountUnit,
+          }),
+          tone: 'text-foreground',
+        },
+      ]
+    : []
+
+  return (
+    <div className="border-t border-border/60 px-4 py-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <h3 className="text-[12px] font-semibold text-foreground">
+          {t('etfShares.margin.drawdown.status.title')}
+        </h3>
+        <Badge variant={MARGIN_STATE_VARIANTS[latest?.state ?? ''] ?? 'outline'}>
+          {t(stateKey)}
+        </Badge>
+        <span className="ml-auto font-mono text-[11px] text-muted-foreground">
+          {latest?.date ?? '--'}
+        </span>
+      </div>
+      {latest ? (
+        <div className="mt-2.5 grid grid-cols-2 gap-2.5 sm:grid-cols-3 xl:grid-cols-5">
+          {items.map((item) => (
+            <div key={item.label} className="rounded-xl border border-border/60 bg-card/60 p-3">
+              <div className="truncate text-[11px] text-muted-foreground">{item.label}</div>
+              <div className="mt-1.5 flex items-baseline gap-1">
+                <span
+                  className={`font-mono text-[17px] font-bold leading-none md:text-[19px] ${item.tone}`}
+                >
+                  {item.value}
+                </span>
+                {item.unit && (
+                  <span className="shrink-0 text-[10px] text-muted-foreground">{item.unit}</span>
+                )}
+              </div>
+              <div className="mt-1.5 truncate text-[10px] text-muted-foreground/80">
+                {item.sub}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="mt-2 text-[11px] text-muted-foreground">
+          {t('etfShares.margin.drawdown.status.empty')}
+        </p>
+      )}
+    </div>
+  )
+}
+
 function MarginDashboard({ data }: { data: MetricsPayload }) {
   const { t } = useTranslation('configuration')
   const amountUnit = t('etfShares.margin.unit')
@@ -1458,6 +2028,21 @@ function MarginDashboard({ data }: { data: MetricsPayload }) {
       dashed: true,
     },
   ]
+
+  const drawdownBlock = data.drawdown
+  const drawdownLatest = drawdownBlock?.latest ?? null
+  const drawdownPercentUnit = t('etfShares.margin.drawdown.percentUnit')
+  const drawdownVelocityUnit = t('etfShares.margin.drawdown.velocityUnit')
+  const drawdownAnnotation = drawdownLatest
+    ? {
+        title: drawdownLatest.date,
+        lines: [
+          `${t('etfShares.margin.drawdown.card.drawdown')} ${formatValue(drawdownLatest.drawdown_pct, 2)}${drawdownPercentUnit}`,
+          `${t('etfShares.margin.drawdown.card.velocity', { days: drawdownBlock?.slow_days ?? 20 })} ${formatValue(drawdownLatest.velocity_slow, 3)}${drawdownVelocityUnit}`,
+          `${t('etfShares.margin.drawdown.card.daysSinceHigh')} ${t('etfShares.margin.drawdown.card.days', { count: drawdownLatest.days_since_high })}`,
+        ],
+      }
+    : { title: '', lines: [] }
 
   return (
     <div className="space-y-4">
@@ -1509,6 +2094,71 @@ function MarginDashboard({ data }: { data: MetricsPayload }) {
           />
         </div>
       </section>
+
+      {drawdownBlock && (
+        <section className="card overflow-hidden">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border/60 px-4 py-2.5">
+            <span className="h-4 w-1 rounded" style={{ backgroundColor: DRAWDOWN_COLOR }} />
+            <h2 className="text-[13px] font-semibold">
+              {t('etfShares.margin.drawdown.title')}
+            </h2>
+            <span className="text-[11px] text-muted-foreground">
+              {t('etfShares.margin.drawdown.subtitle', {
+                window: drawdownBlock.window,
+                start: drawdownBlock.dates[0] ?? '--',
+                end: drawdownBlock.dates[drawdownBlock.dates.length - 1] ?? '--',
+              })}
+            </span>
+            <div className="ml-auto">
+              <ChartLegend
+                items={[
+                  {
+                    code: 'drawdown',
+                    name: t('etfShares.margin.drawdown.legendDrawdown'),
+                    color: DRAWDOWN_COLOR,
+                  },
+                  {
+                    code: 'velocity_slow',
+                    name: t('etfShares.margin.drawdown.legendVelocity', {
+                      days: drawdownBlock.slow_days,
+                    }),
+                    color: VELOCITY_SLOW_COLOR,
+                  },
+                  {
+                    code: 'velocity_fast',
+                    name: t('etfShares.margin.drawdown.legendVelocity', {
+                      days: drawdownBlock.fast_days,
+                    }),
+                    color: VELOCITY_FAST_COLOR,
+                  },
+                ]}
+              />
+            </div>
+          </div>
+          <div className="px-2 pb-2 pt-3 md:px-4">
+            <MarginDrawdownChart
+              dates={drawdownBlock.dates}
+              drawdown={drawdownBlock.drawdown_pct}
+              velocitySlow={drawdownBlock.velocity_slow}
+              velocityFast={drawdownBlock.velocity_fast}
+              warmupDays={drawdownBlock.warmup_days}
+              drawdownLabel={t('etfShares.margin.drawdown.legendDrawdown')}
+              slowLabel={t('etfShares.margin.drawdown.legendVelocity', {
+                days: drawdownBlock.slow_days,
+              })}
+              fastLabel={t('etfShares.margin.drawdown.legendVelocity', {
+                days: drawdownBlock.fast_days,
+              })}
+              percentUnit={t('etfShares.margin.drawdown.percentUnit')}
+              velocityUnit={t('etfShares.margin.drawdown.velocityUnit')}
+              annotation={drawdownAnnotation}
+              emptyText={t('etfShares.margin.drawdown.empty')}
+              ariaLabel={t('etfShares.margin.drawdown.title')}
+            />
+          </div>
+          <MarginDrawdownStatus block={drawdownBlock} />
+        </section>
+      )}
 
       <div className="grid gap-4 xl:grid-cols-2">
         <section className="card overflow-hidden">

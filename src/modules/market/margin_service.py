@@ -30,8 +30,18 @@ _HEADERS = {
     ),
 }
 _YI = 100_000_000
-_PAGE_SIZE = 260
+_PAGE_SIZE = 800
 _CACHE_TTL_S = 300
+_BACKFILL_KEY = "backfill"
+_BACKFILL_TTL_S = 365 * 86400.0
+
+# 回撤指标：滚动约 1 年（250 个交易日）高点为基准。
+_DRAWDOWN_METRIC = "total_balance"
+_DRAWDOWN_WINDOW = 250
+_SLOW_DAYS = 20
+_FAST_DAYS = 5
+_MAX_POINTS = 2500
+_NEAR_HIGH_PCT = -2.0
 
 # (指标 id, 东财字段)；金额与融券余量统一换算为亿。
 _SERIES: tuple[tuple[str, str], ...] = (
@@ -84,7 +94,8 @@ def parse_market_payload(payload: Any) -> dict[str, dict[str, float]]:
     return rows
 
 
-def fetch_market_rows() -> dict[str, dict[str, float]]:
+def _fetch_page(page_number: int) -> tuple[dict[str, dict[str, float]], int]:
+    """抓取一页历史，返回（按交易日的行数据, 总页数）。东财单页最多 800 条。"""
     payload = market_get(
         _DATACENTER_URL,
         host_key=_DATACENTER_HOST,
@@ -94,7 +105,7 @@ def fetch_market_rows() -> dict[str, dict[str, float]]:
             "sortColumns": "DIM_DATE",
             "sortTypes": "-1",
             "pageSize": str(_PAGE_SIZE),
-            "pageNumber": "1",
+            "pageNumber": str(page_number),
             "source": "WEB",
             "client": "WEB",
         },
@@ -107,9 +118,29 @@ def fetch_market_rows() -> dict[str, dict[str, float]]:
         log_label="融资融券市场历史",
     )
     rows = parse_market_payload(payload)
+    result = payload.get("result") if isinstance(payload, dict) else None
+    pages = int(result.get("pages") or 1) if isinstance(result, dict) else 1
+    return rows, max(1, pages)
+
+
+def fetch_history(*, full: bool) -> tuple[dict[str, dict[str, float]], bool]:
+    """抓取历史。full=True 时按页拉全量，返回（行数据, 是否取完所有页）。"""
+    rows, pages = _fetch_page(1)
     if not rows:
         logger.warning("[融资融券] 东财全市场历史数据不可用")
-    return rows
+        return {}, False
+    if full and pages > 1:
+        for page_number in range(2, pages + 1):
+            page_rows, _ = _fetch_page(page_number)
+            if not page_rows:
+                logger.warning(
+                    "[融资融券] 全量回填第 %s/%s 页为空，本次保留已取得部分",
+                    page_number,
+                    pages,
+                )
+                return rows, False
+            rows.update(page_rows)
+    return rows, True
 
 
 def _load_rows(*, force: bool) -> dict[str, dict[str, float]]:
@@ -119,16 +150,123 @@ def _load_rows(*, force: bool) -> dict[str, dict[str, float]]:
             if cached is not None:
                 return cached
         previous = _store.get("rows", allow_stale=True) or {}
+        full = _store.get(_BACKFILL_KEY, allow_stale=True) is None
         try:
-            rows = fetch_market_rows()
+            rows, complete = fetch_history(full=full)
         except Exception as exc:
             logger.warning("[融资融券] 更新失败，沿用本地数据: %s", exc)
-            rows = {}
+            rows, complete = {}, False
         if rows:
-            rows = merge_mappings(previous, rows)
-            _store.set("rows", rows)
-            return rows
+            merged = merge_mappings(previous, rows)
+            _store.set("rows", merged)
+            if full and complete:
+                _store.set(
+                    _BACKFILL_KEY,
+                    {"trading_days": len(merged), "page_size": _PAGE_SIZE},
+                    ttl_sec=_BACKFILL_TTL_S,
+                )
+            return merged
         return previous
+
+
+def _classify_state(
+    drawdown_pct: float | None,
+    velocity_slow: float | None,
+    velocity_fast: float | None,
+) -> str:
+    if drawdown_pct is None:
+        return "no_data"
+    if drawdown_pct >= _NEAR_HIGH_PCT:
+        return "near_high"
+    if velocity_slow is None:
+        return "unknown"
+    if velocity_slow >= 0:
+        return "recovering"
+    if velocity_fast is not None and velocity_fast < velocity_slow:
+        return "accelerating"
+    return "decelerating"
+
+
+def build_drawdown(rows: dict[str, dict[str, float]]) -> dict[str, Any]:
+    """相对滚动 1 年高点的回撤与下杀/修复速度（百分点）。"""
+    dates = sorted(day for day, values in rows.items() if _DRAWDOWN_METRIC in values)
+    count = len(dates)
+    values = [rows[day][_DRAWDOWN_METRIC] for day in dates]
+    drawdown: list[float | None] = [None] * count
+    peak_at: list[int | None] = [None] * count
+
+    if count >= _DRAWDOWN_WINDOW:
+        for index in range(_DRAWDOWN_WINDOW - 1, count):
+            begin = index - _DRAWDOWN_WINDOW + 1
+            high, position = values[begin], begin
+            for candidate in range(begin + 1, index + 1):
+                if values[candidate] >= high:
+                    high, position = values[candidate], candidate
+            if high > 0:
+                drawdown[index] = (values[index] / high - 1) * 100
+                peak_at[index] = position
+
+    def velocity(span: int) -> list[float | None]:
+        return [
+            (
+                round((drawdown[index] - drawdown[index - span]) / span, 6)
+                if index >= span
+                and drawdown[index] is not None
+                and drawdown[index - span] is not None
+                else None
+            )
+            for index in range(count)
+        ]
+
+    slow = velocity(_SLOW_DAYS)
+    fast = velocity(_FAST_DAYS)
+
+    latest: dict[str, Any] | None = None
+    if count and drawdown[count - 1] is not None:
+        index = count - 1
+        position = peak_at[index] or 0
+        high_value = values[position]
+        cycle = [
+            (day, value)
+            for day, value in enumerate(drawdown[position:], start=position)
+            if value is not None
+        ]
+        trough_day, trough_value = min(cycle, key=lambda item: item[1])
+        current_value = values[index]
+        latest = {
+            "date": dates[index],
+            "value": round(current_value, 6),
+            "high_value": round(high_value, 6),
+            "high_date": dates[position],
+            "drawdown_pct": round(float(drawdown[index]), 4),
+            "velocity_slow": slow[index],
+            "velocity_fast": fast[index],
+            "days_since_high": index - position,
+            "max_drawdown_pct": round(trough_value, 4),
+            "max_drawdown_date": dates[trough_day],
+            "rebound_needed_pct": (
+                round((high_value / current_value - 1) * 100, 4) if current_value > 0 else None
+            ),
+            "state": _classify_state(drawdown[index], slow[index], fast[index]),
+        }
+
+    offset = max(0, count - _MAX_POINTS)
+    warmup_end = min(count, _DRAWDOWN_WINDOW - 1)
+    return {
+        "metric": _DRAWDOWN_METRIC,
+        "window": _DRAWDOWN_WINDOW,
+        "slow_days": _SLOW_DAYS,
+        "fast_days": _FAST_DAYS,
+        "warmup_days": max(0, warmup_end - offset),
+        "history_days": count,
+        "dates": dates[offset:],
+        "drawdown_pct": [
+            None if value is None else round(value, 4) for value in drawdown[offset:]
+        ],
+        "velocity_slow": slow[offset:],
+        "velocity_fast": fast[offset:],
+        "latest": latest,
+    }
 
 
 def build_market_payload(
@@ -188,6 +326,7 @@ def build_market_payload(
         "dates": dates,
         "metrics": metrics,
         "series": series,
+        "drawdown": build_drawdown(rows),
         "coverage": {
             "trading_days": len(dates),
             "target": len(targets),

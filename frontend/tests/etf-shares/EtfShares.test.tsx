@@ -1030,6 +1030,32 @@ const marginCurve = {
     rq_balance: [291.676273, 291.016912, 288.540977],
     total_balance: [24825.418672, 24803.466292, 24791.312771],
   },
+  drawdown: {
+    metric: 'total_balance',
+    window: 250,
+    slow_days: 20,
+    fast_days: 5,
+    warmup_days: 0,
+    history_days: 3,
+    dates,
+    drawdown_pct: [-4.2, -5.6, -7.05],
+    velocity_slow: [-0.12, -0.2, -0.28],
+    velocity_fast: [-0.2, -0.3, -0.42],
+    latest: {
+      date: '2026-10-21',
+      value: 24791.312771,
+      high_value: 26672.5,
+      high_date: '2026-09-10',
+      drawdown_pct: -7.05,
+      velocity_slow: -0.28,
+      velocity_fast: -0.42,
+      days_since_high: 26,
+      max_drawdown_pct: -7.05,
+      max_drawdown_date: '2026-10-21',
+      rebound_needed_pct: 7.59,
+      state: 'accelerating',
+    },
+  },
   coverage: { trading_days: 3, target: 3, complete: true },
 }
 
@@ -1234,12 +1260,41 @@ describe('ETF share tracker page', () => {
     expect(screen.getByRole('img', { name: '融资融券余额变化曲线' })).toBeTruthy()
     expect(screen.getByRole('img', { name: '融券余量变化' })).toBeTruthy()
     expect(screen.getByRole('img', { name: '融资买入额 vs 偿还额' })).toBeTruthy()
+    expect(
+      screen.getByRole('img', { name: '两融余额相对近1年高点回撤与速度' }),
+    ).toBeTruthy()
+    expect(screen.getByText('当前状态')).toBeTruthy()
+    expect(screen.getByText('加速下杀')).toBeTruthy()
+    expect(screen.getByText('26 交易日')).toBeTruthy()
+    expect(screen.getAllByText('-7.05').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('距1年高点 26 日').length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/2026-09-10/).length).toBeGreaterThan(0)
     expect(screen.queryByRole('heading', { name: '每日份额变化量' })).toBeNull()
     expect(
       vi.mocked(fetchAPI).mock.calls.some((call) =>
         String(call[0]).includes('group=margin'),
       ),
     ).toBe(true)
+  })
+
+  it('shows the drawdown values on hover', async () => {
+    const user = userEvent.setup()
+    render(<EtfSharesPage />)
+    await screen.findAllByText('沪深300ETF华泰柏瑞')
+
+    const entries = screen.getAllByRole('button', { name: '融资融券' })
+    await user.click(entries[0])
+
+    const chart = (await screen.findByRole('img', {
+      name: '两融余额相对近1年高点回撤与速度',
+    })).parentElement as HTMLElement
+    chart.getBoundingClientRect = () =>
+      ({ left: 0, top: 0, width: 880, height: 300 }) as DOMRect
+    fireEvent.pointerMove(chart, { clientX: 440 })
+
+    expect(await screen.findByText('-5.60%')).toBeTruthy()
+    expect(screen.getByText('-0.20 pp/日')).toBeTruthy()
+    expect(screen.getByText('-0.30 pp/日')).toBeTruthy()
   })
 
   it('renders the CCI coal price dashboard', async () => {
