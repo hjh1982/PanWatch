@@ -20,9 +20,9 @@ const catalog = {
       funds: [
         { code: '510300', name: '沪深300ETF华泰柏瑞' },
         { code: '510310', name: '沪深300ETF易方达' },
-        { code: '510320', name: '沪深300ETF中金' },
         { code: '510330', name: '沪深300ETF华夏' },
-        { code: '510350', name: '沪深300ETF工银' },
+        { code: '159919', name: '沪深300ETF嘉实' },
+        { code: '515330', name: '沪深300ETF天弘' },
       ],
     },
     {
@@ -33,10 +33,10 @@ const catalog = {
       accent: '#3b82f6',
       funds: [
         { code: '510500', name: '中证500ETF南方' },
-        { code: '510510', name: '中证500ETF广发' },
-        { code: '510580', name: '中证500ETF易方达' },
+        { code: '159922', name: '中证500ETF嘉实' },
         { code: '512500', name: '中证500ETF华夏' },
-        { code: '512510', name: '中证500ETF华泰柏瑞' },
+        { code: '510580', name: '中证500ETF易方达' },
+        { code: '510510', name: '中证500ETF广发' },
       ],
     },
     {
@@ -206,9 +206,9 @@ const hs300Curve = {
   funds: [
     fund('510300', '沪深300ETF华泰柏瑞', 301.990877, 7.983),
     fund('510310', '沪深300ETF易方达', 170.62844, 0.342),
-    fund('510320', '沪深300ETF中金', 6.520685, 0),
     fund('510330', '沪深300ETF华夏', 97.022498, 0.78),
-    fund('510350', '沪深300ETF工银', 6.859147, 0),
+    fund('159919', '沪深300ETF嘉实', 90.123456, 0.45),
+    fund('515330', '沪深300ETF天弘', 25.654321, 0.12),
   ],
   coverage: { trading_days: 87, target: 90, complete: true },
 }

@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta
 from io import BytesIO
 from typing import Any
@@ -54,6 +54,7 @@ _BACKFILL_RETRY_S = 60
 class FundDef:
     code: str
     name: str
+    venue: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,9 +77,9 @@ GROUPS: tuple[GroupDef, ...] = (
         funds=(
             FundDef("510300", "沪深300ETF华泰柏瑞"),
             FundDef("510310", "沪深300ETF易方达"),
-            FundDef("510320", "沪深300ETF中金"),
             FundDef("510330", "沪深300ETF华夏"),
-            FundDef("510350", "沪深300ETF工银"),
+            FundDef("159919", "沪深300ETF嘉实", venue="SZSE"),
+            FundDef("515330", "沪深300ETF天弘"),
         ),
     ),
     GroupDef(
@@ -88,10 +89,10 @@ GROUPS: tuple[GroupDef, ...] = (
         accent="#3b82f6",
         funds=(
             FundDef("510500", "中证500ETF南方"),
-            FundDef("510510", "中证500ETF广发"),
-            FundDef("510580", "中证500ETF易方达"),
+            FundDef("159922", "中证500ETF嘉实", venue="SZSE"),
             FundDef("512500", "中证500ETF华夏"),
-            FundDef("512510", "中证500ETF华泰柏瑞"),
+            FundDef("510580", "中证500ETF易方达"),
+            FundDef("510510", "中证500ETF广发"),
         ),
     ),
     GroupDef(
@@ -105,7 +106,7 @@ GROUPS: tuple[GroupDef, ...] = (
             FundDef("159682", "创业板50ETF景顺"),
             FundDef("159681", "创业板50ETF鹏华"),
             FundDef("159369", "创业板50ETF易方达"),
-            FundDef("159375", "创业板50ETF国泰"),
+            FundDef("159367", "创业板50ETF华夏"),
         ),
     ),
     GroupDef(
@@ -116,9 +117,9 @@ GROUPS: tuple[GroupDef, ...] = (
         funds=(
             FundDef("588000", "科创50ETF华夏"),
             FundDef("588080", "科创50ETF易方达"),
+            FundDef("588060", "科创50ETF广发"),
             FundDef("588050", "科创50ETF工银"),
             FundDef("588090", "科创50ETF华泰柏瑞"),
-            FundDef("588180", "科创50ETF国联安"),
         ),
     ),
     GroupDef(
@@ -221,7 +222,10 @@ GROUPS: tuple[GroupDef, ...] = (
 _GROUP_BY_ID = {group.id: group for group in GROUPS}
 _KNOWN_CODES = frozenset(fund.code for group in GROUPS for fund in group.funds)
 _SZSE_CODES = frozenset(
-    fund.code for group in GROUPS if group.venue == "SZSE" for fund in group.funds
+    fund.code
+    for group in GROUPS
+    for fund in group.funds
+    if (fund.venue or group.venue) == "SZSE"
 )
 
 
@@ -811,16 +815,25 @@ def get_curve_payload(
     group = _require_group(group_id)
     targets = target_trade_dates(days)
     if network:
-        if group.venue == "SZSE":
-            _sync_szse_for_response(db, group, targets, force=force)
-        else:
-            _sync_for_response(db, group, targets, force=force)
+        sse_funds = tuple(
+            fund for fund in group.funds if (fund.venue or group.venue) != "SZSE"
+        )
+        szse_funds = tuple(
+            fund for fund in group.funds if (fund.venue or group.venue) == "SZSE"
+        )
+        if szse_funds:
+            _sync_szse_for_response(
+                db, replace(group, funds=szse_funds), targets, force=force
+            )
+        if sse_funds:
+            sse_group = replace(group, funds=sse_funds)
+            _sync_for_response(db, sse_group, targets, force=force)
             today = today_cn().isoformat()
-            covered = _group_covered_days(db, group, targets)
+            covered = _group_covered_days(db, sse_group, targets)
             missing = [
                 day
                 for day in targets
                 if day < today and day not in covered
             ]
-            _start_backfill(missing, group)
+            _start_backfill(missing, sse_group)
     return build_curve_payload(db, group_id, days, targets=targets)

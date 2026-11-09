@@ -6872,6 +6872,8 @@ function EtfSharesPage() {
 
   const groups = catalog?.groups ?? []
   const activeGroup = groups.find((group) => group.id === groupId) ?? null
+  const isHs300Group = activeGroup?.id === 'hs300'
+  const isZz500Group = activeGroup?.id === 'zz500'
   const isCyb50Group = activeGroup?.id === 'cyb50'
   const isKc50Group = activeGroup?.id === 'kc50'
   const isMarginGroup = activeGroup?.id === 'margin'
@@ -6964,7 +6966,11 @@ function EtfSharesPage() {
                   : isMarginGroup
                     ? t('etfShares.margin.badge')
                     : t('etfShares.badge')
-  const pageSubtitle = isCyb50Group
+  const pageSubtitle = isHs300Group
+    ? t('etfShares.hs300.subtitle')
+    : isZz500Group
+    ? t('etfShares.zz500.subtitle')
+    : isCyb50Group
     ? t('etfShares.cyb50.subtitle')
     : isKc50Group
       ? t('etfShares.kc50.subtitle')

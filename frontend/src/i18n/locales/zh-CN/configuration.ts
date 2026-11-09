@@ -597,6 +597,12 @@ export const configuration = {
       hydropower: '长电来水发电',
       threeGorges: '三峡水库水位',
     },
+    hs300: {
+      subtitle: '沪深交易所 · 基金规模（清算后数据）',
+    },
+    zz500: {
+      subtitle: '沪深交易所 · 基金规模（清算后数据）',
+    },
     cyb50: {
       title: '创业板50 ETF',
       badge: '深交所 · 创业板50',

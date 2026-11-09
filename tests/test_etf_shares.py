@@ -314,9 +314,9 @@ def test_目录返回完整页签结构():
     assert [fund["code"] for fund in groups["hs300"]["funds"]] == [
         "510300",
         "510310",
-        "510320",
         "510330",
-        "510350",
+        "159919",
+        "515330",
     ]
     assert len(groups["zz500"]["funds"]) == 5
     assert [fund["code"] for fund in groups["cyb50"]["funds"]] == [
@@ -324,14 +324,14 @@ def test_目录返回完整页签结构():
         "159682",
         "159681",
         "159369",
-        "159375",
+        "159367",
     ]
     assert [fund["code"] for fund in groups["kc50"]["funds"]] == [
         "588000",
         "588080",
+        "588060",
         "588050",
         "588090",
-        "588180",
     ]
     assert groups["hs300"]["available"] is True
     assert groups["zz500"]["available"] is True

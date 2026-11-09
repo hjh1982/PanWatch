@@ -600,6 +600,12 @@ export const configuration = {
       hydropower: 'Yangtze hydropower output',
       threeGorges: 'Three Gorges water level',
     },
+    hs300: {
+      subtitle: 'SSE & SZSE · fund scale (post-settlement)',
+    },
+    zz500: {
+      subtitle: 'SSE & SZSE · fund scale (post-settlement)',
+    },
     cyb50: {
       title: 'ChiNext 50 ETF',
       badge: 'SZSE · ChiNext 50',
