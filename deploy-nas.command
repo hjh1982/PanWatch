@@ -46,6 +46,15 @@ REMOTE_MD5="$(ssh "${SSH_OPTS[@]}" "$NAS" 'md5sum ~/panwatch-migrate/panwatch-sr
 [ "$LOCAL_MD5" = "$REMOTE_MD5" ] || fail "传输校验不一致，请重试"
 echo "  MD5 一致：$LOCAL_MD5"
 
+# 只上传运行期需要的白名单键，避免把本地其它私密配置带上 NAS。
+ENV_KEYS='^(TZ|PUBLIC_BASE_URL)='
+if grep -Eq "$ENV_KEYS" "$PROJECT_DIR/.env" 2>/dev/null; then
+  grep -E "$ENV_KEYS" "$PROJECT_DIR/.env" | ssh "${SSH_OPTS[@]}" "$NAS" 'umask 077 && cat > ~/panwatch-migrate/panwatch.env'
+  echo "  已上传运行配置：$(grep -Ec "$ENV_KEYS" "$PROJECT_DIR/.env") 项"
+else
+  echo "  ⚠️ 本地 .env 无 PUBLIC_BASE_URL 等运行配置，NAS 将沿用已有 panwatch.env"
+fi
+
 echo "▶ [4/5] 在 NAS 准备构建环境..."
 ssh "${SSH_OPTS[@]}" "$NAS" 'rm -rf ~/panwatch-build && mkdir -p ~/panwatch-build && tar -xzf ~/panwatch-migrate/panwatch-src.tar.gz -C ~/panwatch-build --strip-components=1'
 cat "$PROJECT_DIR/scripts/nas/patch-dockerfile.py" | ssh "${SSH_OPTS[@]}" "$NAS" 'python3 -'

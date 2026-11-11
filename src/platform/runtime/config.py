@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     notify_telegram_bot_token: str = ""
     notify_telegram_chat_id: str = ""
 
+    # PanWatch 外部访问地址（如 http://192.168.18.29:8000），晨报点击阅读原文跳转历史页
+    public_base_url: str = ""
+
     # 代理
     http_proxy: str = ""
 

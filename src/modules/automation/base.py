@@ -192,6 +192,7 @@ class BaseAgent(ABC):
         labels = {
             "daily_report": "Daily report",
             "premarket_outlook": "Pre-market outlook",
+            "morning_report": "Morning report",
             "intraday_monitor": "Intraday monitor",
             "tradingagents": "Deep analysis",
         }
@@ -245,13 +246,21 @@ class BaseAgent(ABC):
         """是否需要通知，子类可重写"""
         return True
 
+    async def send_notification(self, context: AgentContext, result: AnalysisResult) -> dict:
+        """发送通知，子类可重写（如晨报直连 Bark 以支持副标题/分组/链接）。"""
+        return await context.notifier.notify_with_result(
+            result.title,
+            result.notify_content or result.content,
+            result.images,
+        )
+
     def _notify_dedupe_ttl_minutes(self, context: AgentContext) -> int:
         """Notification idempotency window (minutes).
 
         P0 policy: per-agent defaults to avoid duplicate notifications.
         """
 
-        if self.name in ("daily_report", "premarket_outlook"):
+        if self.name in ("daily_report", "premarket_outlook", "morning_report"):
             default = 12 * 60
         # Intraday uses its own per-stock throttle.
         elif self.name == "intraday_monitor":
@@ -337,11 +346,7 @@ class BaseAgent(ABC):
 
                 with log_context(event="notify_send", notify_status="attempted"):
                     logger.info(f"Agent [{self.display_name}] 开始发送通知")
-                notify_result = await context.notifier.notify_with_result(
-                    result.title,
-                    result.notify_content or result.content,
-                    result.images,
-                )
+                notify_result = await self.send_notification(context, result)
                 if notify_result.get("skipped"):
                     with log_context(
                         event="notify_skipped",

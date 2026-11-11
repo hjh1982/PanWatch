@@ -27,7 +27,7 @@ interface HistoryRecord {
   updated_at: string
 }
 
-const WORKFLOW_AGENT_KEYS = ['daily_report', 'premarket_outlook', 'intraday_monitor', 'tradingagents']
+const WORKFLOW_AGENT_KEYS = ['morning_report', 'daily_report', 'premarket_outlook', 'intraday_monitor', 'tradingagents']
 const CAPABILITY_AGENT_KEYS = ['news_digest', 'chart_analyst']
 
 export default function HistoryPage() {

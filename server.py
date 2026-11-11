@@ -25,6 +25,7 @@ from src.platform.marketdata.models import MarketCode
 from src.platform.marketdata.javascript_runtime import warmup_javascript_runtime
 from src.platform.ai.ai_client import AIClient
 from src.platform.ai.ai_failover import build_failover_client
+from src.platform.notifications.channels import resolve_notify_channels
 from src.platform.notifications.notifier import NotifierManager
 from src.modules.automation.agent_scheduler import AgentScheduler
 from src.modules.market.price_alert_scheduler import PriceAlertScheduler
@@ -40,6 +41,7 @@ from src.modules.strategy.strategy_catalog import ensure_strategy_catalog
 from src.modules.automation.base import AgentContext, PortfolioInfo, AccountInfo, PositionInfo
 from src.modules.automation.daily_report import DailyReportAgent
 from src.modules.automation.intraday_monitor import IntradayMonitorAgent
+from src.modules.automation.morning_report import MorningReportAgent
 from src.modules.automation.premarket_outlook import PremarketOutlookAgent
 from src.modules.automation.tradingagents import TradingAgentsAgent
 from src.modules.market.data_collector import DEFAULT_TEST_SYMBOLS
@@ -971,53 +973,6 @@ def resolve_ai_model(
         db.close()
 
 
-def resolve_notify_channels(
-    agent_name: str, stock_agent_id: int | None = None
-) -> list[NotifyChannel]:
-    """解析通知渠道: stock_agent 覆盖 → agent 默认 → 系统默认(is_default=True)"""
-    db = SessionLocal()
-    try:
-        channel_ids = None
-
-        # 1. stock_agent 级别覆盖
-        if stock_agent_id:
-            sa = db.query(StockAgent).filter(StockAgent.id == stock_agent_id).first()
-            if sa and sa.notify_channel_ids:
-                channel_ids = sa.notify_channel_ids
-
-        # 2. agent 级别默认
-        if channel_ids is None:
-            agent = db.query(AgentConfig).filter(AgentConfig.name == agent_name).first()
-            if agent and agent.notify_channel_ids:
-                channel_ids = agent.notify_channel_ids
-
-        # 3. 按 id 列表查询或取系统默认
-        if channel_ids:
-            channels = (
-                db.query(NotifyChannel)
-                .filter(
-                    NotifyChannel.id.in_(channel_ids),
-                    NotifyChannel.enabled == True,
-                )
-                .all()
-            )
-        else:
-            channels = (
-                db.query(NotifyChannel)
-                .filter(
-                    NotifyChannel.is_default == True,
-                    NotifyChannel.enabled == True,
-                )
-                .all()
-            )
-
-        for ch in channels:
-            db.expunge(ch)
-        return channels
-    finally:
-        db.close()
-
-
 def _build_notifier(channels: list[NotifyChannel]) -> NotifierManager:
     """根据解析后的渠道列表构建 NotifierManager"""
     settings = Settings()
@@ -1099,6 +1054,7 @@ def build_context(agent_name: str, stock_agent_id: int | None = None) -> AgentCo
 AGENT_REGISTRY: dict[str, type] = {
     "daily_report": DailyReportAgent,
     "premarket_outlook": PremarketOutlookAgent,
+    "morning_report": MorningReportAgent,
     "intraday_monitor": IntradayMonitorAgent,
     "tradingagents": TradingAgentsAgent,
 }

@@ -18,6 +18,18 @@ if [ "$(id -u)" != "0" ]; then echo "FAIL: 需要 sudo"; finish "FAIL not-root";
 if [ -z "$TAG" ]; then echo "FAIL: 缺少版本标签"; finish "FAIL no-tag"; exit 1; fi
 if [ ! -d "$DATA" ]; then echo "FAIL: 数据目录 $DATA 不存在，请先完成首次部署"; finish "FAIL no-data-dir"; exit 1; fi
 
+# 运行期配置（Bark 等）独立于镜像与数据卷，重建容器后仍然生效。
+ENV_FILE=/volume1/docker/panwatch/panwatch.env
+UPLOADED_ENV=/home/jinghui.hu/panwatch-migrate/panwatch.env
+if [ -f "$UPLOADED_ENV" ]; then
+  install -m 600 -o root -g root "$UPLOADED_ENV" "$ENV_FILE" && rm -f "$UPLOADED_ENV"
+  echo "--- 已更新运行配置 $ENV_FILE ---"
+elif [ -f "$ENV_FILE" ]; then
+  echo "--- 沿用已有运行配置 $ENV_FILE ---"
+else
+  echo "--- 未找到运行配置，Bark 推送将不可用 ---"
+fi
+
 cd "$SRC" || { finish "FAIL no-source"; exit 1; }
 echo "--- 构建镜像 $IMAGE ---"
 if ! timeout 2400 docker build --build-arg VERSION="$TAG" -t "$IMAGE" .; then
@@ -35,9 +47,12 @@ if docker ps -a --format '{{.Names}}' | grep -qx panwatch; then
 fi
 
 start_container() {
+  local env_args=()
+  [ -f /volume1/docker/panwatch/panwatch.env ] && env_args=(--env-file /volume1/docker/panwatch/panwatch.env)
   docker run -d --name panwatch \
     --restart unless-stopped \
     -e TZ=Asia/Shanghai \
+    "${env_args[@]}" \
     -p 8000:8000 \
     -v "$DATA":/app/data \
     "$1" >/dev/null

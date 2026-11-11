@@ -13,6 +13,7 @@ AGENT_KIND_WORKFLOW = "workflow"
 AGENT_KIND_CAPABILITY = "capability"
 
 WORKFLOW_AGENT_NAMES: tuple[str, ...] = (
+    "morning_report",
     "premarket_outlook",
     "intraday_monitor",
     "daily_report",
@@ -56,6 +57,17 @@ class AgentSeedSpec:
 
 
 AGENT_SEED_SPECS: tuple[AgentSeedSpec, ...] = (
+    AgentSeedSpec(
+        name="morning_report",
+        display_name="每日晨报",
+        description="盘前抓取隔夜全球市场、快讯与煤炭/电解铝产业动态，AI 生成晨报并推送 Bark",
+        enabled=False,
+        schedule="0 8 * * 1-5",
+        execution_mode="batch",
+        kind=AGENT_KIND_WORKFLOW,
+        visible=True,
+        display_order=5,
+    ),
     AgentSeedSpec(
         name="premarket_outlook",
         display_name="盘前分析",

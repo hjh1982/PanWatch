@@ -44,6 +44,11 @@ def _suppress_notifications(request, monkeypatch):
         AsyncMock(return_value={"success": True, "suppressed": True}),
         raising=False,
     )
+    monkeypatch.setattr(
+        "src.platform.notifications.bark.send",
+        AsyncMock(return_value={"success": True, "suppressed": True}),
+        raising=False,
+    )
 
 
 @pytest.fixture(autouse=True)

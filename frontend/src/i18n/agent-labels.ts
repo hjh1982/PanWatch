@@ -1,6 +1,7 @@
 type Translate = (key: string, options?: Record<string, unknown>) => string
 
 const KNOWN_AGENTS = new Set([
+  'morning_report',
   'premarket_outlook',
   'intraday_monitor',
   'daily_report',
