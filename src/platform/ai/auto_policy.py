@@ -2,7 +2,7 @@
 
 配置了模型不等于希望后台自动消耗 token：定时 Agent、首页策展、
 会话自动命名、上下文自动压缩都受此开关控制；手动触发的 AI 功能不受影响。
-默认关闭，读取失败也按关闭处理。
+默认开启，显式关闭后生效，读取失败按环境变量默认值处理。
 """
 
 from sqlalchemy.orm import Session
@@ -32,7 +32,7 @@ def _read(db: Session) -> bool:
 
 
 def is_ai_auto_enabled(db: Session | None = None) -> bool:
-    """全局自动 AI 开关。未显式开启时一律返回 False。"""
+    """全局自动 AI 开关。未显式设置时取环境默认值（默认开启）。"""
     try:
         if db is not None:
             return _read(db)

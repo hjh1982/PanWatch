@@ -670,7 +670,7 @@ export default function SettingsPage() {
 
   const settingValue = (key: string, fallback = '') =>
     edited[key] ?? settings.find(s => s.key === key)?.value ?? fallback
-  const aiAutoOn = settingValue('ai_auto_enabled', 'false') === 'true'
+  const aiAutoOn = settingValue('ai_auto_enabled', 'true') === 'true'
 
   const setAiAutoEnabled = async (enabled: boolean) => {
     const value = enabled ? 'true' : 'false'
