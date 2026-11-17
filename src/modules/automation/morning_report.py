@@ -1,7 +1,7 @@
 """每日晨报 Agent — 移植自 share/task/daily_report_push.py。
 
 盘前抓取隔夜全球市场数据 → AI 按晨报模板生成 → 直连 Bark 推送（分组「晨报」，
-副标题为一句话提要，点击跳转 PanWatch 历史页）。
+副标题为一句话提要，点击通知直接回到 Bark）。
 数据源：新浪行情、新浪财经7x24、东财、CCTD、akshare（A股复盘/库存）。
 无法获取的项按模板标注「暂未获取」，禁止编造。
 """
@@ -390,13 +390,11 @@ class MorningReportAgent(BaseAgent):
         if channel is None:
             return {"success": False, "skipped": "no_bark_channel"}
         config = channel.config or {}
-        base_url = (context.config.settings.public_base_url or "").rstrip("/")
         return await bark.send(
             config.get("device_key", ""),
             result.title,
             result.notify_content or result.content,
             server=(config.get("server_url") or "").strip() or bark.DEFAULT_SERVER,
             subtitle=result.raw_data.get("subtitle", ""),
-            url=f"{base_url}/history" if base_url else "",
             group="晨报",
         )

@@ -182,7 +182,7 @@ def test_send_notification_uses_bark_channel_config(monkeypatch):
         mr, "resolve_bark_channel",
         lambda name: SimpleNamespace(type="bark", config={"device_key": "test-key", "server_url": "https://bark.example"}),
     )
-    ctx = _context(public_base_url="http://192.168.18.29:8000/")
+    ctx = _context()
     result = mr.AnalysisResult(
         agent_name="morning_report", title="【A股晨报】11月10日 星期一",
         content="提要\n\n正文", notify_content="正文", raw_data={"subtitle": "提要"},
@@ -194,11 +194,11 @@ def test_send_notification_uses_bark_channel_config(monkeypatch):
     assert sent["body"] == "正文"
     assert sent["subtitle"] == "提要"
     assert sent["group"] == "晨报"
-    assert sent["url"] == "http://192.168.18.29:8000/history"
+    assert "url" not in sent
 
 
-def test_send_notification_without_base_url_has_no_link(monkeypatch):
-    """未配置外部地址时不带点击链接。"""
+def test_send_notification_has_no_url(monkeypatch):
+    """不带网页链接：点击通知直接回到 Bark。"""
     sent = {}
 
     async def fake_send(key, title, body, **kwargs):
@@ -210,10 +210,9 @@ def test_send_notification_without_base_url_has_no_link(monkeypatch):
         mr, "resolve_bark_channel",
         lambda name: SimpleNamespace(type="bark", config={"device_key": "test-key"}),
     )
-    ctx = _context(public_base_url="")
     result = mr.AnalysisResult(agent_name="morning_report", title="t", content="b")
-    asyncio.run(mr.MorningReportAgent().send_notification(ctx, result))
-    assert sent["url"] == ""
+    asyncio.run(mr.MorningReportAgent().send_notification(_context(), result))
+    assert "url" not in sent
     assert sent["server"] == bark.DEFAULT_SERVER
 
 
