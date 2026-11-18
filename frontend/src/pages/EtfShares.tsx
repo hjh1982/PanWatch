@@ -231,7 +231,15 @@ function localDateString(): string {
 }
 
 const SERIES_COLORS = ['#e5484d', '#3b82f6', '#f59e0b', '#0ea5a4', '#a855f7']
-const DEFAULT_FOCUS_GROUPS = new Set(['hs300', 'zz500', 'cyb50', 'kc50'])
+const DEFAULT_FOCUS_GROUPS = new Set([
+  'hs300',
+  'sz50',
+  'zz500',
+  'cyb50',
+  'kc50',
+  'dividend',
+  'nonferrous',
+])
 const MARGIN_METRIC_COLORS: Record<string, string> = {
   rz_balance: '#2563eb',
   rz_buy: '#0ea5e9',
@@ -390,9 +398,12 @@ const US_COMPARE_COLORS = [
 const YEAR_COLORS = ['#94a3b8', '#8b5cf6', '#3b82f6', '#f59e0b', '#059669']
 const GROUP_LABEL_KEYS = {
   hs300: 'etfShares.groups.hs300',
+  sz50: 'etfShares.groups.sz50',
   zz500: 'etfShares.groups.zz500',
   cyb50: 'etfShares.groups.cyb50',
   kc50: 'etfShares.groups.kc50',
+  dividend: 'etfShares.groups.dividend',
+  nonferrous: 'etfShares.groups.nonferrous',
   margin: 'etfShares.groups.margin',
   coalPrice: 'etfShares.groups.coalPrice',
   coalLtc: 'etfShares.groups.coalLtc',
@@ -6873,9 +6884,12 @@ function EtfSharesPage() {
   const groups = catalog?.groups ?? []
   const activeGroup = groups.find((group) => group.id === groupId) ?? null
   const isHs300Group = activeGroup?.id === 'hs300'
+  const isSz50Group = activeGroup?.id === 'sz50'
   const isZz500Group = activeGroup?.id === 'zz500'
   const isCyb50Group = activeGroup?.id === 'cyb50'
   const isKc50Group = activeGroup?.id === 'kc50'
+  const isDividendGroup = activeGroup?.id === 'dividend'
+  const isNonferrousGroup = activeGroup?.id === 'nonferrous'
   const isMarginGroup = activeGroup?.id === 'margin'
   const isCoalGroup = activeGroup?.id === 'coalPrice'
   const isCoalLtcGroup = activeGroup?.id === 'coalLtc'
@@ -6892,7 +6906,13 @@ function EtfSharesPage() {
   const isHydropowerGroup = activeGroup?.id === 'hydropower'
   const isDividendYieldGroup = activeGroup?.id === 'dividendYield'
   const isUsCompareGroup = activeGroup?.id === 'usCompare'
-  const pageTitle = isCyb50Group
+  const pageTitle = isSz50Group
+    ? t('etfShares.sz50.title')
+    : isDividendGroup
+    ? t('etfShares.dividend.title')
+    : isNonferrousGroup
+    ? t('etfShares.nonferrous.title')
+    : isCyb50Group
     ? t('etfShares.cyb50.title')
     : isKc50Group
       ? t('etfShares.kc50.title')
@@ -6929,7 +6949,13 @@ function EtfSharesPage() {
                   : isMarginGroup
                     ? t('etfShares.margin.title')
                     : t('etfShares.title')
-  const pageBadge = isCyb50Group
+  const pageBadge = isSz50Group
+    ? t('etfShares.sz50.badge')
+    : isDividendGroup
+    ? t('etfShares.dividend.badge')
+    : isNonferrousGroup
+    ? t('etfShares.nonferrous.badge')
+    : isCyb50Group
     ? t('etfShares.cyb50.badge')
     : isKc50Group
       ? t('etfShares.kc50.badge')
@@ -6966,7 +6992,13 @@ function EtfSharesPage() {
                   : isMarginGroup
                     ? t('etfShares.margin.badge')
                     : t('etfShares.badge')
-  const pageSubtitle = isHs300Group
+  const pageSubtitle = isSz50Group
+    ? t('etfShares.sz50.subtitle')
+    : isDividendGroup
+    ? t('etfShares.dividend.subtitle')
+    : isNonferrousGroup
+    ? t('etfShares.nonferrous.subtitle')
+    : isHs300Group
     ? t('etfShares.hs300.subtitle')
     : isZz500Group
     ? t('etfShares.zz500.subtitle')

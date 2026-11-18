@@ -26,6 +26,20 @@ const catalog = {
       ],
     },
     {
+      id: 'sz50',
+      label: '上证50 ETF',
+      category: 'broad',
+      available: true,
+      accent: '#f59e0b',
+      funds: [
+        { code: '510050', name: '上证50ETF华夏' },
+        { code: '510800', name: '上证50ETF建信' },
+        { code: '510710', name: '上证50ETF博时' },
+        { code: '510850', name: '上证50ETF工银' },
+        { code: '510600', name: '上证50ETF申万菱信' },
+      ],
+    },
+    {
       id: 'zz500',
       label: '中证500 ETF',
       category: 'broad',
@@ -59,6 +73,29 @@ const catalog = {
       funds: [
         { code: '588000', name: '科创50ETF华夏' },
         { code: '588080', name: '科创50ETF易方达' },
+      ],
+    },
+    {
+      id: 'dividend',
+      label: '红利 ETF',
+      category: 'broad',
+      available: true,
+      accent: '#ca8a04',
+      funds: [
+        { code: '512890', name: '红利低波ETF华泰柏瑞' },
+        { code: '515450', name: '红利低波50ETF南方' },
+        { code: '510880', name: '红利ETF华泰柏瑞' },
+      ],
+    },
+    {
+      id: 'nonferrous',
+      label: '有色 ETF',
+      category: 'broad',
+      available: true,
+      accent: '#0891b2',
+      funds: [
+        { code: '512400', name: '有色金属ETF南方' },
+        { code: '159157', name: '有色金属ETF天弘' },
       ],
     },
     {
@@ -213,6 +250,15 @@ const hs300Curve = {
   coverage: { trading_days: 87, target: 90, complete: true },
 }
 
+const sz50Curve = {
+  group: 'sz50',
+  group_label: '上证50 ETF',
+  as_of: '2026-10-21',
+  dates,
+  funds: [fund('510050', '上证50ETF华夏', 164.580668, 1.2)],
+  coverage: { trading_days: 90, target: 90, complete: true },
+}
+
 const zz500Curve = {
   group: 'zz500',
   group_label: '中证500 ETF',
@@ -240,6 +286,24 @@ const kc50Curve = {
   as_of: '2026-10-21',
   dates,
   funds: [fund('588000', '科创50ETF华夏', 900.686682, -3.2)],
+  coverage: { trading_days: 90, target: 90, complete: true },
+}
+
+const dividendCurve = {
+  group: 'dividend',
+  group_label: '红利 ETF',
+  as_of: '2026-10-21',
+  dates,
+  funds: [fund('512890', '红利低波ETF华泰柏瑞', 317.58, 2.1)],
+  coverage: { trading_days: 90, target: 90, complete: true },
+}
+
+const nonferrousCurve = {
+  group: 'nonferrous',
+  group_label: '有色 ETF',
+  as_of: '2026-10-21',
+  dates,
+  funds: [fund('512400', '有色金属ETF南方', 161.66, -1.3)],
   coverage: { trading_days: 90, target: 90, complete: true },
 }
 
@@ -1069,9 +1133,12 @@ beforeEach(() => {
     if (String(path).startsWith('/etf-shares/coal/points/')) {
       return Promise.resolve({ date: '2026-10-14', price: 1020 })
     }
+    if (path.includes('/curve?group=sz50')) return Promise.resolve(sz50Curve)
     if (path.includes('/curve?group=zz500')) return Promise.resolve(zz500Curve)
     if (path.includes('/curve?group=cyb50')) return Promise.resolve(cyb50Curve)
     if (path.includes('/curve?group=kc50')) return Promise.resolve(kc50Curve)
+    if (path.includes('/curve?group=dividend&')) return Promise.resolve(dividendCurve)
+    if (path.includes('/curve?group=nonferrous')) return Promise.resolve(nonferrousCurve)
     if (path.includes('/curve?group=margin')) return Promise.resolve(marginCurve)
     if (path.includes('/curve?group=aluminumInventory')) {
       return Promise.resolve(inventoryCurve)
@@ -1227,6 +1294,49 @@ describe('ETF share tracker page', () => {
     expect((await screen.findAllByText('科创50ETF华夏')).length).toBeGreaterThan(0)
     expect(vi.mocked(fetchAPI)).toHaveBeenCalledWith(
       expect.stringContaining('group=kc50'),
+      expect.anything(),
+    )
+  })
+
+  it('switches to the SSE 50 group', async () => {
+    const user = userEvent.setup()
+    render(<EtfSharesPage />)
+    await screen.findAllByText('沪深300ETF华泰柏瑞')
+
+    const entries = screen.getAllByRole('button', { name: '上证50 ETF' })
+    await user.click(entries[0])
+
+    expect((await screen.findAllByRole('heading', { name: '上证50 ETF' })).length).toBeGreaterThan(0)
+    expect(screen.getAllByText('上交所 · 上证50').length).toBeGreaterThan(0)
+    expect((await screen.findAllByText('上证50ETF华夏')).length).toBeGreaterThan(0)
+    expect(vi.mocked(fetchAPI)).toHaveBeenCalledWith(
+      expect.stringContaining('group=sz50'),
+      expect.anything(),
+    )
+  })
+
+  it('switches to the dividend and nonferrous groups', async () => {
+    const user = userEvent.setup()
+    render(<EtfSharesPage />)
+    await screen.findAllByText('沪深300ETF华泰柏瑞')
+
+    await user.click(screen.getAllByRole('button', { name: '红利 ETF' })[0])
+
+    expect((await screen.findAllByRole('heading', { name: '红利 ETF' })).length).toBeGreaterThan(0)
+    expect(screen.getAllByText('上交所 · 红利').length).toBeGreaterThan(0)
+    expect((await screen.findAllByText('红利低波ETF华泰柏瑞')).length).toBeGreaterThan(0)
+    expect(vi.mocked(fetchAPI)).toHaveBeenCalledWith(
+      expect.stringContaining('group=dividend'),
+      expect.anything(),
+    )
+
+    await user.click(screen.getAllByRole('button', { name: '有色 ETF' })[0])
+
+    expect((await screen.findAllByRole('heading', { name: '有色 ETF' })).length).toBeGreaterThan(0)
+    expect(screen.getAllByText('沪深交易所 · 有色金属').length).toBeGreaterThan(0)
+    expect((await screen.findAllByText('有色金属ETF南方')).length).toBeGreaterThan(0)
+    expect(vi.mocked(fetchAPI)).toHaveBeenCalledWith(
+      expect.stringContaining('group=nonferrous'),
       expect.anything(),
     )
   })

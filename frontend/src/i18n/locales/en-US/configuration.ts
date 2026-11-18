@@ -581,9 +581,12 @@ export const configuration = {
     },
     groups: {
       hs300: 'CSI 300 ETF',
+      sz50: 'SSE 50 ETF',
       zz500: 'CSI 500 ETF',
       cyb50: 'ChiNext 50 ETF',
       kc50: 'STAR 50 ETF',
+      dividend: 'Dividend ETF',
+      nonferrous: 'Nonferrous metals ETF',
       margin: 'Margin financing',
       coalPrice: 'Coal prices',
       coalLtc: 'Thermal coal LTC price',
@@ -604,6 +607,11 @@ export const configuration = {
     hs300: {
       subtitle: 'SSE & SZSE · fund scale (post-settlement)',
     },
+    sz50: {
+      title: 'SSE 50 ETF',
+      badge: 'SSE · SSE 50',
+      subtitle: 'Shanghai Stock Exchange · fund scale (post-settlement)',
+    },
     zz500: {
       subtitle: 'SSE & SZSE · fund scale (post-settlement)',
     },
@@ -616,6 +624,16 @@ export const configuration = {
       title: 'STAR 50 ETF',
       badge: 'SSE · STAR 50',
       subtitle: 'Shanghai Stock Exchange · fund scale (post-settlement)',
+    },
+    dividend: {
+      title: 'Dividend ETF',
+      badge: 'SSE · Dividend',
+      subtitle: 'Shanghai Stock Exchange · fund scale (post-settlement)',
+    },
+    nonferrous: {
+      title: 'Nonferrous metals ETF',
+      badge: 'SSE & SZSE · Nonferrous metals',
+      subtitle: 'SSE & SZSE · fund scale (post-settlement)',
     },
     chart: {
       title: 'Total shares (all funds)',

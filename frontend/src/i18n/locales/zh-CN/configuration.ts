@@ -578,9 +578,12 @@ export const configuration = {
     },
     groups: {
       hs300: '沪深300 ETF',
+      sz50: '上证50 ETF',
       zz500: '中证500 ETF',
       cyb50: '创业板50 ETF',
       kc50: '科创50 ETF',
+      dividend: '红利 ETF',
+      nonferrous: '有色 ETF',
       margin: '融资融券',
       coalPrice: '煤炭价格',
       coalLtc: '动力煤月度长协价',
@@ -601,6 +604,11 @@ export const configuration = {
     hs300: {
       subtitle: '沪深交易所 · 基金规模（清算后数据）',
     },
+    sz50: {
+      title: '上证50 ETF',
+      badge: '上交所 · 上证50',
+      subtitle: '上海证券交易所 · 基金规模（清算后数据）',
+    },
     zz500: {
       subtitle: '沪深交易所 · 基金规模（清算后数据）',
     },
@@ -613,6 +621,16 @@ export const configuration = {
       title: '科创50 ETF',
       badge: '上交所 · 科创50',
       subtitle: '上海证券交易所 · 基金规模（清算后数据）',
+    },
+    dividend: {
+      title: '红利 ETF',
+      badge: '上交所 · 红利',
+      subtitle: '上海证券交易所 · 基金规模（清算后数据）',
+    },
+    nonferrous: {
+      title: '有色 ETF',
+      badge: '沪深交易所 · 有色金属',
+      subtitle: '沪深交易所 · 基金规模（清算后数据）',
     },
     chart: {
       title: '总份额变化曲线（全部）',

@@ -291,9 +291,12 @@ def test_目录返回完整页签结构():
     groups = {group["id"]: group for group in payload["groups"]}
     assert set(groups) == {
         "hs300",
+        "sz50",
         "zz500",
         "cyb50",
         "kc50",
+        "dividend",
+        "nonferrous",
         "margin",
         "usCompare",
         "coalPrice",
@@ -318,6 +321,15 @@ def test_目录返回完整页签结构():
         "159919",
         "515330",
     ]
+    assert [fund["code"] for fund in groups["sz50"]["funds"]] == [
+        "510050",
+        "510800",
+        "510710",
+        "510850",
+        "510600",
+    ]
+    assert groups["sz50"]["available"] is True
+    assert groups["sz50"]["category"] == "broad"
     assert len(groups["zz500"]["funds"]) == 5
     assert [fund["code"] for fund in groups["cyb50"]["funds"]] == [
         "159949",
@@ -332,6 +344,20 @@ def test_目录返回完整页签结构():
         "588060",
         "588050",
         "588090",
+    ]
+    assert [fund["code"] for fund in groups["dividend"]["funds"]] == [
+        "512890",
+        "515450",
+        "510880",
+        "515180",
+        "563020",
+    ]
+    assert [fund["code"] for fund in groups["nonferrous"]["funds"]] == [
+        "512400",
+        "516650",
+        "159157",
+        "159652",
+        "512940",
     ]
     assert groups["hs300"]["available"] is True
     assert groups["zz500"]["available"] is True
@@ -392,9 +418,12 @@ def test_目录接口可由前端直接调用():
     assert response.status_code == 200
     assert [group["id"] for group in response.json()["groups"]] == [
         "hs300",
+        "sz50",
         "zz500",
         "cyb50",
         "kc50",
+        "dividend",
+        "nonferrous",
         "margin",
         "usCompare",
         "coalPrice",

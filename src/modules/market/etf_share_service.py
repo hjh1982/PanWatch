@@ -83,6 +83,19 @@ GROUPS: tuple[GroupDef, ...] = (
         ),
     ),
     GroupDef(
+        id="sz50",
+        label="上证50 ETF",
+        category="broad",
+        accent="#f59e0b",
+        funds=(
+            FundDef("510050", "上证50ETF华夏"),
+            FundDef("510800", "上证50ETF建信"),
+            FundDef("510710", "上证50ETF博时"),
+            FundDef("510850", "上证50ETF工银"),
+            FundDef("510600", "上证50ETF申万菱信"),
+        ),
+    ),
+    GroupDef(
         id="zz500",
         label="中证500 ETF",
         category="broad",
@@ -120,6 +133,32 @@ GROUPS: tuple[GroupDef, ...] = (
             FundDef("588060", "科创50ETF广发"),
             FundDef("588050", "科创50ETF工银"),
             FundDef("588090", "科创50ETF华泰柏瑞"),
+        ),
+    ),
+    GroupDef(
+        id="dividend",
+        label="红利 ETF",
+        category="broad",
+        accent="#ca8a04",
+        funds=(
+            FundDef("512890", "红利低波ETF华泰柏瑞"),
+            FundDef("515450", "红利低波50ETF南方"),
+            FundDef("510880", "红利ETF华泰柏瑞"),
+            FundDef("515180", "红利ETF易方达"),
+            FundDef("563020", "红利低波ETF易方达"),
+        ),
+    ),
+    GroupDef(
+        id="nonferrous",
+        label="有色 ETF",
+        category="broad",
+        accent="#0891b2",
+        funds=(
+            FundDef("512400", "有色金属ETF南方"),
+            FundDef("516650", "有色金属ETF华夏"),
+            FundDef("159157", "有色金属ETF天弘", venue="SZSE"),
+            FundDef("159652", "有色ETF汇添富", venue="SZSE"),
+            FundDef("512940", "有色ETF华安"),
         ),
     ),
     GroupDef(
