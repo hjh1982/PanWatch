@@ -150,6 +150,22 @@ interface MetricsPayload {
     dates: string[]
     values: Array<number | null>
   }
+  quarterly?: {
+    dates: string[]
+    sow: Array<number | null>
+    hog_stock: Array<number | null>
+  }
+  daily?: {
+    dates: string[]
+    ratio: Array<number | null>
+    hog_price: Array<number | null>
+    corn: Array<number | null>
+  }
+  policy?: {
+    normal: number
+    green_low: number
+    green_high: number
+  }
   coverage: Coverage
   storage?: CoalStorage
   source?: {
@@ -366,6 +382,13 @@ const GOLD_RESERVES_COLOR = '#eab308'
 const GOLD_RESERVES_CHANGE_COLOR = '#b45309'
 const SCFI_COLOR = '#14b8a6'
 const SCFI_CHANGE_COLOR = '#0f766e'
+const HOG_SOW_COLOR = '#dc2626'
+const HOG_PRICE_COLOR = '#f97316'
+const HOG_PIGLET_COLOR = '#0ea5e9'
+const HOG_BBOAR_COLOR = '#7c3aed'
+const HOG_RATIO_COLOR = '#0f766e'
+const HOG_SLAUGHTER_COLOR = '#64748b'
+const HOG_POLICY_COLOR = '#16a34a'
 const DIVIDEND_YIELD_COLORS: Record<string, string> = {
   all: '#dc2626',
   large: '#2563eb',
@@ -433,6 +456,7 @@ const GROUP_LABEL_KEYS = {
   scfi: 'etfShares.groups.scfi',
   hydropower: 'etfShares.groups.hydropower',
   threeGorges: 'etfShares.groups.threeGorges',
+  hogCycle: 'etfShares.groups.hogCycle',
 } as const
 const CHART_WIDTH = 880
 const CHART_HEIGHT = 300
@@ -616,6 +640,7 @@ function ShareChart({
   zeroBased = false,
   xTickFormat,
   yTickFormat,
+  referenceLines = [],
 }: {
   dates: string[]
   series: ChartSeries[]
@@ -629,13 +654,17 @@ function ShareChart({
   zeroBased?: boolean
   xTickFormat?: (date: string) => string
   yTickFormat?: (value: number, step: number) => string
+  referenceLines?: Array<{ value: number; label?: string; color?: string }>
 }) {
   const gradientId = useId()
   const [hoverIndex, setHoverIndex] = useState<number | null>(null)
 
   const model = useMemo(() => {
     if (dates.length === 0 || series.length === 0) return null
-    const values = series.flatMap((item) => item.values)
+    const values = [
+      ...series.flatMap((item) => item.values),
+      ...referenceLines.map((line) => line.value),
+    ]
     const scale = zeroBased ? buildZeroScale(values, 5) : buildScale(values, 5)
     if (!scale) return null
     const innerWidth = CHART_WIDTH - CHART_PADDING.left - CHART_PADDING.right
@@ -684,7 +713,7 @@ function ShareChart({
       return { x: xOf(index), index, anchor }
     })
     return { scale, innerHeight, xOf, yOf, lines, xTicks }
-  }, [dates, series, zeroBased])
+  }, [dates, series, zeroBased, referenceLines])
 
   if (!model) {
     return (
@@ -757,6 +786,40 @@ function ShareChart({
               </linearGradient>
             ))}
         </defs>
+        {referenceLines
+          .filter(
+            (line) =>
+              line.value >= model.scale.min && line.value <= model.scale.max,
+          )
+          .map((line) => {
+            const y = model.yOf(line.value)
+            const color = line.color ?? 'hsl(var(--muted-foreground))'
+            return (
+              <g key={`ref-${line.value}-${line.label ?? ''}`}>
+                <line
+                  x1={CHART_PADDING.left}
+                  x2={CHART_WIDTH - CHART_PADDING.right}
+                  y1={y}
+                  y2={y}
+                  stroke={color}
+                  strokeWidth={0.9}
+                  strokeDasharray="5 4"
+                  opacity={0.75}
+                />
+                {line.label && (
+                  <text
+                    x={CHART_WIDTH - CHART_PADDING.right - 2}
+                    y={y - 3}
+                    textAnchor="end"
+                    fill={color}
+                    fontSize={9}
+                  >
+                    {line.label}
+                  </text>
+                )}
+              </g>
+            )
+          })}
         {model.scale.ticks.map((tick) => (
           <g key={tick}>
             <line
@@ -6276,6 +6339,429 @@ function HydropowerDashboard({ data }: { data: MetricsPayload }) {
   )
 }
 
+function HogCycleDashboard({ data }: { data: MetricsPayload }) {
+  const { t } = useTranslation('configuration')
+  const metricMap = useMemo(
+    () => new Map(data.metrics.map((metric) => [metric.id, metric])),
+    [data.metrics],
+  )
+  const sow = metricMap.get('sow')
+  const hogPrice = metricMap.get('hog_price')
+  const piglet = metricMap.get('piglet_price')
+  const ratio = metricMap.get('corn_hog_ratio')
+  const slaughter = metricMap.get('slaughter')
+  const policy = data.policy
+  const sowShare =
+    typeof sow?.latest === 'number' && policy
+      ? (sow.latest / policy.normal) * 100
+      : null
+  const sowZone =
+    sowShare == null
+      ? null
+      : sowShare < 88 || sowShare > 106
+        ? 'red'
+        : sowShare >= 92 && sowShare <= 103
+          ? 'green'
+          : 'yellow'
+  const zoneLabel =
+    sowZone === 'green'
+      ? t('etfShares.hogCycle.stats.zoneGreen')
+      : sowZone === 'yellow'
+        ? t('etfShares.hogCycle.stats.zoneYellow')
+        : sowZone === 'red'
+          ? t('etfShares.hogCycle.stats.zoneRed')
+          : ''
+  const zoneClass =
+    sowZone === 'green'
+      ? 'bg-emerald-500/10 text-emerald-600'
+      : sowZone === 'yellow'
+        ? 'bg-amber-500/10 text-amber-600'
+        : 'bg-red-500/10 text-red-600'
+  const ratioValue = ratio?.latest ?? null
+  const ratioLevelKey =
+    ratioValue == null
+      ? null
+      : ratioValue < 5 || ratioValue >= 12
+        ? 'level1'
+        : ratioValue < 6 || ratioValue >= 10
+          ? 'level2'
+          : ratioValue < 9
+            ? 'normal'
+            : 'level3'
+  const ratioLevel =
+    ratioLevelKey === 'level1'
+      ? t('etfShares.hogCycle.stats.ratioLevel1')
+      : ratioLevelKey === 'level2'
+        ? t('etfShares.hogCycle.stats.ratioLevel2')
+        : ratioLevelKey === 'level3'
+          ? t('etfShares.hogCycle.stats.ratioLevel3')
+          : ratioLevelKey === 'normal'
+            ? t('etfShares.hogCycle.stats.ratioNormal')
+            : ''
+  const ratioAlert = ratioLevelKey === 'level1' || ratioLevelKey === 'level2' || ratioLevelKey === 'level3'
+
+  const quarterly = data.quarterly
+  const sowSeries: ChartSeries[] = quarterly
+    ? [
+        {
+          code: 'sow',
+          name: t('etfShares.hogCycle.metrics.sow'),
+          color: HOG_SOW_COLOR,
+          values: quarterly.sow,
+          filled: true,
+        },
+      ]
+    : []
+  const sowReferences = policy
+    ? [
+        {
+          value: policy.normal,
+          label: t('etfShares.hogCycle.charts.sowNormal', {
+            value: policy.normal,
+          }),
+          color: HOG_POLICY_COLOR,
+        },
+        { value: policy.green_low, label: String(policy.green_low), color: HOG_POLICY_COLOR },
+        { value: policy.green_high, label: String(policy.green_high), color: HOG_POLICY_COLOR },
+      ]
+    : []
+  const priceSeries: ChartSeries[] = [
+    {
+      code: 'hog_price',
+      name: t('etfShares.hogCycle.metrics.hogPrice'),
+      color: HOG_PRICE_COLOR,
+      values: data.series.hog_price ?? [],
+    },
+    {
+      code: 'piglet_price',
+      name: t('etfShares.hogCycle.metrics.piglet'),
+      color: HOG_PIGLET_COLOR,
+      values: data.series.piglet_price ?? [],
+    },
+    {
+      code: 'bboar_price',
+      name: t('etfShares.hogCycle.metrics.bboar'),
+      color: HOG_BBOAR_COLOR,
+      values: data.series.bboar_price ?? [],
+    },
+  ].filter((item) => item.values.some((value) => typeof value === 'number')) as ChartSeries[]
+  const daily = data.daily
+  const ratioSeries: ChartSeries[] = daily
+    ? [
+        {
+          code: 'ratio',
+          name: t('etfShares.hogCycle.metrics.ratio'),
+          color: HOG_RATIO_COLOR,
+          values: daily.ratio,
+          filled: true,
+        },
+      ]
+    : []
+  const ratioReferences = [5, 6, 9].map((value) => ({
+    value,
+    label: t('etfShares.hogCycle.charts.ratioLine', { value }),
+    color: HOG_POLICY_COLOR,
+  }))
+  const slaughterSeries: ChartSeries[] = [
+    {
+      code: 'slaughter',
+      name: t('etfShares.hogCycle.metrics.slaughter'),
+      color: HOG_SLAUGHTER_COLOR,
+      values: data.series.slaughter ?? [],
+      filled: true,
+    },
+  ].filter((item) => item.values.some((value) => typeof value === 'number')) as ChartSeries[]
+  const sources = data.sources ?? []
+  const monthTick = (day: string) => day.slice(0, 7)
+  const dayTick = (day: string) => day.slice(5)
+
+  return (
+    <div className="space-y-4">
+      <section className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+        <div className="relative overflow-hidden rounded-xl border border-border/60 bg-card/60 p-3">
+          <span
+            className="absolute inset-y-0 left-0 w-0.5"
+            style={{ backgroundColor: HOG_SOW_COLOR }}
+          />
+          <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            <span
+              className="h-2.5 w-1 rounded-sm"
+              style={{ backgroundColor: HOG_SOW_COLOR }}
+            />
+            <span className="truncate">{t('etfShares.hogCycle.metrics.sow')}</span>
+          </div>
+          <div className="mt-1.5 flex items-baseline gap-1">
+            <span className="font-mono text-[19px] font-bold leading-none text-foreground md:text-[21px]">
+              {formatValue(sow?.latest ?? null, 0)}
+            </span>
+            <span className="shrink-0 text-[10px] text-muted-foreground">
+              {t('etfShares.hogCycle.units.sow')}
+            </span>
+          </div>
+          <div className={`mt-1.5 font-mono text-[10px] ${marketSignTextClass(sow?.delta ?? null)}`}>
+            {formatDelta(sow?.delta ?? null, 0)}
+            <span className="ml-1">({formatPercent(sow?.delta_pct ?? null)})</span>
+          </div>
+          {sowShare != null && (
+            <div className="mt-1 flex flex-wrap items-center gap-1 text-[10px] text-muted-foreground/80">
+              <span>
+                {t('etfShares.hogCycle.stats.targetShare', {
+                  value: sowShare.toFixed(1),
+                })}
+              </span>
+              <span className={`rounded px-1 py-0.5 text-[9px] ${zoneClass}`}>
+                {zoneLabel}
+              </span>
+            </div>
+          )}
+        </div>
+
+        {hogPrice && (
+          <MetricCard
+            metric={hogPrice}
+            label={t('etfShares.hogCycle.metrics.hogPrice')}
+            unit={t('etfShares.hogCycle.units.price')}
+            color={HOG_PRICE_COLOR}
+            deltaLabel={t('etfShares.hogCycle.stats.mom')}
+          />
+        )}
+        {piglet && (
+          <MetricCard
+            metric={piglet}
+            label={t('etfShares.hogCycle.metrics.piglet')}
+            unit={t('etfShares.hogCycle.units.price')}
+            color={HOG_PIGLET_COLOR}
+            deltaLabel={t('etfShares.hogCycle.stats.mom')}
+          />
+        )}
+        {ratio && (
+          <div className="relative overflow-hidden rounded-xl border border-border/60 bg-card/60 p-3">
+            <span
+              className="absolute inset-y-0 left-0 w-0.5"
+              style={{ backgroundColor: HOG_RATIO_COLOR }}
+            />
+            <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+              <span
+                className="h-2.5 w-1 rounded-sm"
+                style={{ backgroundColor: HOG_RATIO_COLOR }}
+              />
+              <span className="truncate">{t('etfShares.hogCycle.metrics.ratio')}</span>
+            </div>
+            <div className="mt-1.5 flex items-baseline gap-1">
+              <span className="font-mono text-[19px] font-bold leading-none text-foreground md:text-[21px]">
+                {formatValue(ratioValue, 2)}
+              </span>
+              <span className="shrink-0 text-[10px] text-muted-foreground">
+                {t('etfShares.hogCycle.units.ratio')}
+              </span>
+            </div>
+            <div className={`mt-1.5 font-mono text-[10px] ${marketSignTextClass(ratio.delta)}`}>
+              <span className="mr-1 font-sans text-muted-foreground">
+                {t('etfShares.hogCycle.stats.dailyChange')}
+              </span>
+              {formatDelta(ratio.delta, 3)}
+            </div>
+            {ratioLevel && (
+              <div className="mt-1 text-[10px]">
+                <span
+                  className={`rounded px-1 py-0.5 text-[9px] ${
+                    ratioAlert
+                      ? 'bg-red-500/10 text-red-600'
+                      : 'bg-emerald-500/10 text-emerald-600'
+                  }`}
+                >
+                  {ratioLevel}
+                </span>
+              </div>
+            )}
+          </div>
+        )}
+      </section>
+
+      <section className="card overflow-hidden">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border/60 px-4 py-2.5">
+          <span
+            className="h-4 w-1 rounded"
+            style={{ backgroundColor: HOG_SOW_COLOR }}
+          />
+          <h2 className="text-[13px] font-semibold">
+            {t('etfShares.hogCycle.charts.sowTitle')}
+          </h2>
+          <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+            {t('etfShares.hogCycle.charts.quarterly')}
+          </span>
+          {data.as_of && (
+            <span className="ml-auto font-mono text-[11px] text-muted-foreground">
+              {data.as_of}
+            </span>
+          )}
+        </div>
+        <div className="px-2 pb-2 pt-3 md:px-4">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2 px-1">
+            <p className="text-[11px] text-muted-foreground/80">
+              {policy
+                ? t('etfShares.hogCycle.charts.sowHint', {
+                    low: policy.green_low,
+                    high: policy.green_high,
+                    normal: policy.normal,
+                  })
+                : ''}
+            </p>
+            <ChartLegend items={sowSeries} />
+          </div>
+          <ShareChart
+            dates={quarterly?.dates ?? []}
+            series={sowSeries}
+            emptyText={t('etfShares.hogCycle.charts.empty')}
+            unitLabel={t('etfShares.hogCycle.charts.yUnitSow')}
+            ariaLabel={t('etfShares.hogCycle.charts.sowTitle')}
+            labelByName
+            valueUnit={t('etfShares.hogCycle.units.sow')}
+            valueDigits={0}
+            sortTooltip={false}
+            xTickFormat={monthTick}
+            referenceLines={sowReferences}
+          />
+        </div>
+      </section>
+
+      <section className="card overflow-hidden">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border/60 px-4 py-2.5">
+          <span
+            className="h-4 w-1 rounded"
+            style={{ backgroundColor: HOG_PRICE_COLOR }}
+          />
+          <h2 className="text-[13px] font-semibold">
+            {t('etfShares.hogCycle.charts.priceTitle')}
+          </h2>
+          <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+            {t('etfShares.hogCycle.charts.monthly')}
+          </span>
+          <span className="text-[11px] text-muted-foreground">
+            {t('etfShares.hogCycle.charts.priceHint')}
+          </span>
+        </div>
+        <div className="px-2 pb-2 pt-3 md:px-4">
+          <div className="mb-2 flex justify-end px-1">
+            <ChartLegend items={priceSeries} />
+          </div>
+          <ShareChart
+            dates={data.dates}
+            series={priceSeries}
+            emptyText={t('etfShares.hogCycle.charts.empty')}
+            unitLabel={t('etfShares.hogCycle.charts.yUnitPrice')}
+            ariaLabel={t('etfShares.hogCycle.charts.priceTitle')}
+            labelByName
+            valueUnit={t('etfShares.hogCycle.units.price')}
+            valueDigits={2}
+            sortTooltip={false}
+            xTickFormat={monthTick}
+          />
+        </div>
+      </section>
+
+      <section className="card overflow-hidden">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border/60 px-4 py-2.5">
+          <span
+            className="h-4 w-1 rounded"
+            style={{ backgroundColor: HOG_RATIO_COLOR }}
+          />
+          <h2 className="text-[13px] font-semibold">
+            {t('etfShares.hogCycle.charts.ratioTitle')}
+          </h2>
+          <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+            {t('etfShares.hogCycle.charts.daily')}
+          </span>
+          <span className="text-[11px] text-muted-foreground">
+            {t('etfShares.hogCycle.charts.ratioHint')}
+          </span>
+        </div>
+        <div className="px-2 pb-2 pt-3 md:px-4">
+          <ShareChart
+            dates={daily?.dates ?? []}
+            series={ratioSeries}
+            emptyText={t('etfShares.hogCycle.charts.empty')}
+            unitLabel={t('etfShares.hogCycle.charts.yUnitRatio')}
+            ariaLabel={t('etfShares.hogCycle.charts.ratioTitle')}
+            labelByName
+            valueUnit={t('etfShares.hogCycle.units.ratio')}
+            valueDigits={2}
+            sortTooltip={false}
+            xTickFormat={dayTick}
+            referenceLines={ratioReferences}
+          />
+        </div>
+      </section>
+
+      <section className="card overflow-hidden">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border/60 px-4 py-2.5">
+          <span
+            className="h-4 w-1 rounded"
+            style={{ backgroundColor: HOG_SLAUGHTER_COLOR }}
+          />
+          <h2 className="text-[13px] font-semibold">
+            {t('etfShares.hogCycle.charts.slaughterTitle')}
+          </h2>
+          <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+            {t('etfShares.hogCycle.charts.monthly')}
+          </span>
+          <span className="text-[11px] text-muted-foreground">
+            {t('etfShares.hogCycle.charts.slaughterHint')}
+          </span>
+          {slaughter && (
+            <span className="ml-auto font-mono text-[11px] text-muted-foreground">
+              {formatValue(slaughter.latest, 0)} {t('etfShares.hogCycle.units.slaughter')}
+            </span>
+          )}
+        </div>
+        <div className="px-2 pb-2 pt-3 md:px-4">
+          <ShareChart
+            dates={data.dates}
+            series={slaughterSeries}
+            emptyText={t('etfShares.hogCycle.charts.empty')}
+            unitLabel={t('etfShares.hogCycle.charts.yUnitSlaughter')}
+            ariaLabel={t('etfShares.hogCycle.charts.slaughterTitle')}
+            labelByName
+            valueUnit={t('etfShares.hogCycle.units.slaughter')}
+            valueDigits={0}
+            sortTooltip={false}
+            xTickFormat={monthTick}
+          />
+        </div>
+        <div className="space-y-2 border-t border-border/60 px-4 py-3">
+          <div className="text-[11px] font-medium text-muted-foreground">
+            {t('etfShares.hogCycle.sourcesTitle')}
+          </div>
+          <ul className="space-y-1 text-[11px] text-muted-foreground/80">
+            {sources.map((source) => (
+              <li key={source.id} className="flex flex-wrap gap-x-1.5">
+                <span>{source.name}</span>
+                <span>· {source.cadence}</span>
+                {source.start && (
+                  <span>
+                    · {t('etfShares.hogCycle.since', { date: source.start })}
+                  </span>
+                )}
+                {source.latest && (
+                  <span>
+                    · {t('etfShares.hogCycle.latest', { date: source.latest })}
+                  </span>
+                )}
+                {!source.latest && (
+                  <span>· {t('etfShares.hogCycle.noSourceData')}</span>
+                )}
+              </li>
+            ))}
+          </ul>
+          <p className="text-[11px] text-muted-foreground/80">
+            {t('etfShares.hogCycle.caveat')}
+          </p>
+        </div>
+      </section>
+    </div>
+  )
+}
+
 function DividendYieldDashboard({ data }: { data: MetricsPayload }) {
   const { t } = useTranslation('configuration')
   const metricMap = useMemo(
@@ -7038,6 +7524,7 @@ function EtfSharesPage() {
   const isGoldReservesGroup = activeGroup?.id === 'goldReserves'
   const isScfiGroup = activeGroup?.id === 'scfi'
   const isHydropowerGroup = activeGroup?.id === 'hydropower'
+  const isHogCycleGroup = activeGroup?.id === 'hogCycle'
   const isDividendYieldGroup = activeGroup?.id === 'dividendYield'
   const isUsCompareGroup = activeGroup?.id === 'usCompare'
   const pageTitle = isSz50Group
@@ -7082,6 +7569,8 @@ function EtfSharesPage() {
                 ? t('etfShares.aluminum.title')
                 : isThreeGorgesGroup
                   ? t('etfShares.threeGorges.title')
+                  : isHogCycleGroup
+                    ? t('etfShares.hogCycle.title')
                   : isMarginGroup
                     ? t('etfShares.margin.title')
                     : t('etfShares.title')
@@ -7127,6 +7616,8 @@ function EtfSharesPage() {
                 ? t('etfShares.aluminum.badge')
                 : isThreeGorgesGroup
                   ? t('etfShares.threeGorges.badge')
+                  : isHogCycleGroup
+                    ? t('etfShares.hogCycle.badge')
                   : isMarginGroup
                     ? t('etfShares.margin.badge')
                     : t('etfShares.badge')
@@ -7176,6 +7667,8 @@ function EtfSharesPage() {
                 ? t('etfShares.aluminum.subtitle')
                 : isThreeGorgesGroup
                   ? t('etfShares.threeGorges.subtitle')
+                  : isHogCycleGroup
+                    ? t('etfShares.hogCycle.subtitle')
                   : isMarginGroup
                     ? t('etfShares.margin.subtitle')
                     : t('etfShares.subtitle')
@@ -7215,6 +7708,8 @@ function EtfSharesPage() {
                 ? t('etfShares.aluminum.loading')
                 : isThreeGorgesGroup
                   ? t('etfShares.threeGorges.loading')
+                  : isHogCycleGroup
+                    ? t('etfShares.hogCycle.loading')
                   : isMarginGroup
                     ? t('etfShares.margin.loading')
                     : t('etfShares.loading')
@@ -7250,6 +7745,8 @@ function EtfSharesPage() {
                 ? t('etfShares.aluminum.noData')
                 : isThreeGorgesGroup
                   ? t('etfShares.threeGorges.noData')
+                  : isHogCycleGroup
+                    ? t('etfShares.hogCycle.noData')
                   : isMarginGroup
                     ? t('etfShares.margin.noData')
                     : t('etfShares.errors.noData')
@@ -7393,6 +7890,13 @@ function EtfSharesPage() {
                   ? t('etfShares.threeGorges.updatedCount', {
                       count: curve.coverage.trading_days,
                     })
+                  : isHogCycleGroup
+                    ? t('etfShares.hogCycle.updatedCount', {
+                        months: curve.coverage.trading_days,
+                        days: isMetricsPayload(curve)
+                          ? curve.daily?.dates.length ?? 0
+                          : 0,
+                      })
                   : t('etfShares.updatedCount', {
                       count: curve.coverage.trading_days,
                     })
@@ -7438,6 +7942,7 @@ function EtfSharesPage() {
                 !isGoldReservesGroup &&
                 !isScfiGroup &&
                 !isHydropowerGroup &&
+                !isHogCycleGroup &&
                 !isInventoryGroup && (
                 <Select
                   value={String(days)}
@@ -7561,6 +8066,8 @@ function EtfSharesPage() {
             <ScfiDashboard data={metricsCurve} />
           ) : isHydropowerGroup && metricsCurve ? (
             <HydropowerDashboard data={metricsCurve} />
+          ) : isHogCycleGroup && metricsCurve ? (
+            <HogCycleDashboard data={metricsCurve} />
           ) : isDividendYieldGroup && metricsCurve ? (
             <DividendYieldDashboard data={metricsCurve} />
           ) : !hasData ? (

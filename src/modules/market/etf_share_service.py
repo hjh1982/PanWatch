@@ -263,6 +263,12 @@ GROUPS: tuple[GroupDef, ...] = (
         category="commodity",
         accent="#22c55e",
     ),
+    GroupDef(
+        id="hogCycle",
+        label="生猪周期",
+        category="commodity",
+        accent="#dc2626",
+    ),
 )
 _GROUP_BY_ID = {group.id: group for group in GROUPS}
 _KNOWN_CODES = frozenset(fund.code for group in GROUPS for fund in group.funds)

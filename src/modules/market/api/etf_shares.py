@@ -19,6 +19,7 @@ from src.modules.market import (
     etf_share_service,
     global_coal_service,
     gold_reserves_service,
+    hog_cycle_service,
     hydropower_service,
     margin_service,
     scfi_service,
@@ -100,6 +101,8 @@ def _load_curve(
         return scfi_service.get_curve_payload(group, days, force=force)
     if group == hydropower_service.HYDROPOWER_GROUP_ID:
         return hydropower_service.get_curve_payload(group, days, force=force)
+    if group == hog_cycle_service.HOG_CYCLE_GROUP_ID:
+        return hog_cycle_service.get_curve_payload(group, days, force=force)
     if group == us_compare_service.US_COMPARE_GROUP_ID:
         return us_compare_service.get_compare_payload(
             ",".join(us_compare_service.DEFAULT_SYMBOLS),

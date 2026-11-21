@@ -314,6 +314,7 @@ def test_目录返回完整页签结构():
         "scfi",
         "hydropower",
         "threeGorges",
+        "hogCycle",
     }
     assert [fund["code"] for fund in groups["hs300"]["funds"]] == [
         "510300",
@@ -407,6 +408,9 @@ def test_目录返回完整页签结构():
     assert groups["threeGorges"]["available"] is True
     assert groups["threeGorges"]["category"] == "commodity"
     assert groups["threeGorges"]["funds"] == []
+    assert groups["hogCycle"]["available"] is True
+    assert groups["hogCycle"]["category"] == "commodity"
+    assert groups["hogCycle"]["funds"] == []
 
 
 def test_目录接口可由前端直接调用():
@@ -442,6 +446,7 @@ def test_目录接口可由前端直接调用():
         "scfi",
         "hydropower",
         "threeGorges",
+        "hogCycle",
     ]
 
 
