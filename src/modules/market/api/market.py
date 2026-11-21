@@ -6,7 +6,7 @@ import httpx
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from src.modules.market import fear_greed_service
+from src.modules.market import defensive_top_service, fear_greed_service
 from src.platform.marketdata.collectors.kline_collector import get_index_klines
 from src.platform.marketdata.models import MarketCode
 from src.platform.persistence.database import get_db
@@ -282,6 +282,12 @@ async def get_commodities():
     result = await asyncio.to_thread(_build_commodities)
     _COMM_CACHE["commodities"] = (now, result)
     return result
+
+
+@router.get("/defensive-top")
+async def get_defensive_top():
+    """高股息防御三巨头做头观察（公共数据，无需认证）。"""
+    return await asyncio.to_thread(defensive_top_service.get_payload)
 
 
 @router.get("/fear-greed")

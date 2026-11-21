@@ -66,6 +66,40 @@ export interface DashboardFearGreed {
   }
 }
 
+export interface DashboardDefensiveTopStock {
+  symbol: string
+  name: string
+  available: boolean
+  reason?: string
+  date?: string
+  close?: number
+  change_pct?: number | null
+  high60?: number
+  high60_date?: string
+  drawdown_pct?: number | null
+  ma20?: number | null
+  ma60?: number | null
+  vs_ma20_pct?: number | null
+  vs_ma60_pct?: number | null
+  ma20_slope_pct?: number | null
+  ma60_slope_pct?: number | null
+  /** 近 60 个交易日收盘价，用于首页 mini 走势 */
+  spark?: number[]
+}
+
+export interface DashboardDefensiveTop {
+  as_of: string | null
+  stocks: DashboardDefensiveTopStock[]
+  collective: {
+    warning: boolean
+    triggered: number
+    total: number
+    threshold: number
+    drawdown_pct: number
+    symbols: string[]
+  }
+}
+
 export interface DashboardMarketStatus {
   code: string
   name: string
@@ -270,6 +304,8 @@ export const dashboardApi = {
 
   fearGreed: (days = 30) =>
     fetchAPI<DashboardFearGreed>(withQuery('/market/fear-greed', { days })),
+
+  defensiveTop: () => fetchAPI<DashboardDefensiveTop>('/market/defensive-top'),
 
   marketStatus: () => fetchAPI<DashboardMarketStatus[]>('/stocks/markets/status'),
 

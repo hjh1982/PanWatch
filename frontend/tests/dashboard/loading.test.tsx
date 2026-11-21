@@ -8,7 +8,7 @@ import { MarketColorProvider } from '@/hooks/use-market-colors'
 
 vi.mock('@panwatch/api', () => ({
   dashboardApi: {
-    indices: vi.fn(), commodities: vi.fn(), fearGreed: vi.fn(), intradaySnapshot: vi.fn(), watchlist: vi.fn(), portfolioSummary: vi.fn(),
+    indices: vi.fn(), commodities: vi.fn(), fearGreed: vi.fn(), defensiveTop: vi.fn(), intradaySnapshot: vi.fn(), watchlist: vi.fn(), portfolioSummary: vi.fn(),
     marketStatus: vi.fn(), brief: vi.fn(), curate: vi.fn(),
   },
   portfolioApi: { diagnostics: vi.fn(), benchmark: vi.fn(), attribution: vi.fn() },

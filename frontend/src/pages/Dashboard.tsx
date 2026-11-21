@@ -9,6 +9,7 @@ import {
   homeApi,
   type DashboardMarketIndex,
   type DashboardCommodity,
+  type DashboardDefensiveTop,
   type DashboardFearGreed,
   type DashboardFearGreedLevel,
   type DashboardMarketStatus,
@@ -155,6 +156,112 @@ function FearGreedCard({ data, error, titleKey }: {
   )
 }
 
+function slopeArrow(v?: number | null): string {
+  if (v == null || !isFinite(v)) return '—'
+  if (v > 0.2) return '↗'
+  if (v < -0.2) return '↘'
+  return '→'
+}
+
+/** 高股息三巨头做头观察：只展示状态，集体走弱时给大盘见顶提示。 */
+function DefensiveTopCard({ data, error, onSelect }: {
+  data: DashboardDefensiveTop | null
+  error: boolean
+  onSelect: (symbol: string, name: string) => void
+}) {
+  const { t } = useTranslation('configuration')
+  const dashboardT = t as unknown as (key: string, options?: Record<string, unknown>) => string
+  const collective = data?.collective
+  return (
+    <div className="card mb-3 px-3 py-2.5" title={dashboardT('dashboard.defensiveTop.hint')}>
+      <div className="mb-2 flex flex-wrap items-center gap-2">
+        <ShieldAlert className="h-4 w-4 text-muted-foreground" />
+        <span className="text-[12px] font-medium">{dashboardT('dashboard.defensiveTop.title')}</span>
+        {collective ? (
+          <span className={`ml-auto rounded px-1.5 py-0.5 text-[11px] font-medium ${collective.warning ? 'bg-rose-500/15 text-rose-600' : 'bg-emerald-500/15 text-emerald-600'}`}>
+            {collective.warning
+              ? dashboardT('dashboard.defensiveTop.collectiveWarning', { triggered: collective.triggered, total: collective.total })
+              : dashboardT('dashboard.defensiveTop.collectiveCalm', { triggered: collective.triggered, total: collective.total })}
+          </span>
+        ) : (
+          <span className="ml-auto text-[11px] text-muted-foreground">
+            {error ? dashboardT('dashboard.defensiveTop.unavailable') : dashboardT('dashboard.loading')}
+          </span>
+        )}
+      </div>
+      {data && (
+        <>
+          <div className="grid grid-cols-1 gap-1.5 md:grid-cols-3">
+            {data.stocks.map((stock) => (
+              <button
+                key={stock.symbol}
+                type="button"
+                onClick={() => onSelect(stock.symbol, stock.name)}
+                className="rounded-md border border-border/50 px-2 py-1.5 text-left transition-colors hover:border-primary/40 hover:bg-accent/30"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="truncate text-[11px] text-muted-foreground">{stock.name}</div>
+                    <div className="font-mono text-[14px] leading-tight text-foreground">
+                      {stock.close != null ? stock.close.toFixed(2) : '--'}
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    {stock.change_pct != null && (
+                      <span className={`rounded px-1 py-0.5 font-mono text-[9px] ${pctChipCls(stock.change_pct)}`}>
+                        {pct(stock.change_pct)}
+                      </span>
+                    )}
+                    {stock.spark && stock.spark.length >= 2 && (
+                      <div className="w-14">
+                        <Sparkline data={stock.spark} height={20} className={moveColor(stock.change_pct)} />
+                      </div>
+                    )}
+                  </div>
+                </div>
+                {stock.available ? (
+                  <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 font-mono text-[10px] text-muted-foreground">
+                    <span title={dashboardT('dashboard.defensiveTop.highHint', {
+                      price: stock.high60 != null ? stock.high60.toFixed(2) : '--',
+                      date: stock.high60_date || '--',
+                    })}>
+                      {dashboardT('dashboard.defensiveTop.drawdown')}{' '}
+                      <span className={moveColor(stock.drawdown_pct)}>{pct(stock.drawdown_pct)}</span>
+                    </span>
+                    <span title={dashboardT('dashboard.defensiveTop.slopeHint', {
+                      ma20: pct(stock.ma20_slope_pct),
+                      ma60: pct(stock.ma60_slope_pct),
+                    })}>
+                      {dashboardT('dashboard.defensiveTop.ma20')}{' '}
+                      <span className={moveColor(stock.vs_ma20_pct)}>{pct(stock.vs_ma20_pct)}</span>{' '}
+                      <span className={moveColor(stock.ma20_slope_pct)}>{slopeArrow(stock.ma20_slope_pct)}</span>
+                      <span className="mx-1 text-muted-foreground/30">|</span>
+                      {dashboardT('dashboard.defensiveTop.ma60')}{' '}
+                      <span className={moveColor(stock.vs_ma60_pct)}>{pct(stock.vs_ma60_pct)}</span>{' '}
+                      <span className={moveColor(stock.ma60_slope_pct)}>{slopeArrow(stock.ma60_slope_pct)}</span>
+                    </span>
+                  </div>
+                ) : (
+                  <div className="mt-1 text-[10px] text-muted-foreground">
+                    {dashboardT('dashboard.defensiveTop.insufficient')}
+                  </div>
+                )}
+              </button>
+            ))}
+          </div>
+          <div className="mt-1.5 text-[10px] text-muted-foreground">
+            {dashboardT('dashboard.defensiveTop.rule', {
+              count: collective?.threshold ?? 2,
+              drawdown: collective?.drawdown_pct ?? 8,
+            })}
+            {data.as_of ? ` · ${dashboardT('dashboard.defensiveTop.asOf', { date: data.as_of })}` : ''}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 /** 商品价格格式化：沪铝主连为整数，离岸人民币四位小数，其余保留两位小数。 */
 function formatCommodityPrice(cm: DashboardCommodity): string {
   if (cm.current_price == null) return '--'
@@ -216,6 +323,8 @@ export default function DashboardPage() {
   const [commodities, setCommodities] = useState<DashboardCommodity[]>([])
   const [fearGreed, setFearGreed] = useState<DashboardFearGreed | null>(null)
   const [fearGreedError, setFearGreedError] = useState(false)
+  const [defensiveTop, setDefensiveTop] = useState<DashboardDefensiveTop | null>(null)
+  const [defensiveTopError, setDefensiveTopError] = useState(false)
   const [marketMap, setMarketMap] = useState<MarketMapSnapshot | null>(null)
   const [marketMapError, setMarketMapError] = useState(false)
   const [autoRefresh, setAutoRefresh] = useLocalStorage('panwatch_dashboard_autoRefresh', true)
@@ -283,6 +392,13 @@ export default function DashboardPage() {
         setFearGreedError(false)
       })
       .catch(() => { if (current()) setFearGreedError(true) })
+    void dashboardApi.defensiveTop()
+      .then((value) => {
+        if (!current()) return
+        setDefensiveTop(value)
+        setDefensiveTopError(false)
+      })
+      .catch(() => { if (current()) setDefensiveTopError(true) })
     void discoveryApi.marketMap({ market: 'CN', limit: 400 })
       .then((value) => {
         if (!current()) return
@@ -629,6 +745,13 @@ export default function DashboardPage() {
 
       {/* A股恐贪指数：百分位 0–100 情绪温度，紧贴云图上方作为情绪背景 */}
       <FearGreedCard data={fearGreed} error={fearGreedError} titleKey="dashboard.fearGreed.title" />
+
+      {/* 高股息防御三巨头做头观察 */}
+      <DefensiveTopCard
+        data={defensiveTop}
+        error={defensiveTopError}
+        onSelect={(symbol, name) => openStock(symbol, 'CN', name)}
+      />
 
       {/* 大盘云图:面积=总市值，颜色=涨跌幅，按东财二级行业分组 */}
       <MarketCloudMap
