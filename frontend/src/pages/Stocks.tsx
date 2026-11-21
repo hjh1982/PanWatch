@@ -331,6 +331,7 @@ export default function StocksPage() {
   const [txnList, setTxnList] = useState<AccountTxn[]>([])
   const [txnSummary, setTxnSummary] = useState<TxnSummary | null>(null)
   const [txnLoading, setTxnLoading] = useState(false)
+  const [txnDeletingId, setTxnDeletingId] = useState<number | null>(null)
 
   const [positionDialogAccountId, setPositionDialogAccountId] = useState<number | null>(null)
   const [positionSearchQuery, setPositionSearchQuery] = useState('')
@@ -1122,6 +1123,22 @@ export default function StocksPage() {
       toast(stockT('stocksPage.messages.transactionsLoadFailed'), 'error')
     } finally {
       setTxnLoading(false)
+    }
+  }
+
+  const handleDeleteTxn = async (txn: AccountTxn) => {
+    if (!txnDialogAccount) return
+    if (!(await confirmAction(stockT('stocksPage.messages.deleteTransactionConfirm'), { destructive: true }))) return
+    setTxnDeletingId(txn.id)
+    try {
+      await fetchAPI(`/accounts/${txnDialogAccount.id}/transactions/${txn.id}`, { method: 'DELETE' })
+      toast(stockT('stocksPage.messages.transactionDeleted'), 'success')
+      await openTxnDialog(txnDialogAccount.id)
+      loadPortfolio()
+    } catch (e) {
+      toast(e instanceof Error ? e.message : stockT('stocksPage.messages.deleteTransactionFailed'), 'error')
+    } finally {
+      setTxnDeletingId(null)
     }
   }
 
@@ -3023,6 +3040,7 @@ export default function StocksPage() {
                     <th className="px-2 py-2 text-right font-normal">{stockT('stocksPage.messages.tradeQuantity')}</th>
                     <th className="px-2 py-2 text-right font-normal">{stockT('stocksPage.messages.tradePrice')}</th>
                     <th className="px-2 py-2 text-right font-normal">{stockT('stocksPage.messages.realizedPnl')}</th>
+                    <th className="w-8 px-1 py-2" />
                   </tr>
                 </thead>
                 <tbody>
@@ -3041,6 +3059,18 @@ export default function StocksPage() {
                       <td className="px-2 py-2 text-right font-mono text-foreground">{t.price.toFixed(2)}</td>
                       <td className={`px-2 py-2 text-right font-mono ${t.realized_pnl == null ? 'text-muted-foreground' : marketSignTextClass(t.realized_pnl)}`}>
                         {t.realized_pnl == null ? '—' : `${t.realized_pnl > 0 ? '+' : ''}${formatMoney(t.realized_pnl)}`}
+                      </td>
+                      <td className="px-1 py-1 text-right">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6 hover:text-destructive"
+                          aria-label={stockT('stocksPage.messages.deleteTransaction')}
+                          disabled={txnDeletingId === t.id}
+                          onClick={() => handleDeleteTxn(t)}
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </Button>
                       </td>
                     </tr>
                   ))}

@@ -262,6 +262,84 @@ def list_account_transactions(account_id: int, db: Session = Depends(get_db)):
     return {"items": items, "summary": summary}
 
 
+@router.delete("/accounts/{account_id}/transactions/{transaction_id}")
+def delete_account_transaction(account_id: int, transaction_id: int, db: Session = Depends(get_db)):
+    """删除一条买卖明细，并回滚该笔交易对持仓和可用资金的影响。"""
+    account = db.query(Account).filter(Account.id == account_id).first()
+    if not account:
+        raise api_error(404, "account_not_found", "账户不存在")
+
+    txn = db.query(AccountTransaction).filter(
+        AccountTransaction.id == transaction_id,
+        AccountTransaction.account_id == account_id,
+    ).first()
+    if not txn:
+        raise api_error(404, "transaction_not_found", "交易明细不存在")
+
+    position = db.query(Position).filter(
+        Position.account_id == account_id,
+        Position.stock_id == txn.stock_id,
+    ).first()
+
+    qty = txn.quantity or 0
+    amount = txn.amount or 0.0
+    fee = txn.fee or 0.0
+    account_name = account.name
+    stock_name = txn.stock.name if txn.stock else "未知股票"
+    side = txn.side
+
+    if side == "buy":
+        # 买入回滚：持仓减少，成本按加权平均剔除该笔（含手续费）
+        new_qty = (position.quantity or 0) - qty if position else -qty
+        if not position or new_qty < 0:
+            raise api_error(400, "transaction_rollback_failed", "该笔买入已被后续卖出，无法单独删除")
+        if new_qty == 0:
+            db.delete(position)
+        else:
+            basis = position.cost_price * (position.quantity or 0) - amount - fee
+            position.cost_price = basis / new_qty
+            position.quantity = new_qty
+        account.available_funds = (account.available_funds or 0) + amount + fee
+    elif side == "sell":
+        # 卖出回滚：恢复持仓数量，成本按卖出时的均价还原
+        avg_cost = txn.price
+        if qty > 0 and txn.realized_pnl is not None:
+            avg_cost = txn.price - (txn.realized_pnl + fee) / qty
+        if position:
+            new_qty = (position.quantity or 0) + qty
+            position.cost_price = (
+                position.cost_price * (position.quantity or 0) + avg_cost * qty
+            ) / new_qty
+            position.quantity = new_qty
+        else:
+            # 该笔卖出清仓后持仓已删除：仅当该股票没有其它流水时才能准确还原
+            others = db.query(AccountTransaction.id).filter(
+                AccountTransaction.account_id == account_id,
+                AccountTransaction.stock_id == txn.stock_id,
+                AccountTransaction.id != txn.id,
+            ).first()
+            if others:
+                raise api_error(400, "transaction_rollback_failed", "该股票还存在其它交易记录，无法还原持仓")
+            max_order = db.query(func.max(Position.sort_order)).filter(
+                Position.account_id == account_id
+            ).scalar() or 0
+            db.add(Position(
+                account_id=account_id,
+                stock_id=txn.stock_id,
+                cost_price=avg_cost,
+                quantity=qty,
+                sort_order=int(max_order) + 1,
+            ))
+        account.available_funds = (account.available_funds or 0) - amount + fee
+    else:
+        raise api_error(400, "invalid_transaction", "未知的交易方向")
+
+    db.delete(txn)
+    db.commit()
+    logger.info("删除交易明细: %s - %s %s %s股", account_name, stock_name, side, qty)
+    return {"success": True}
+
+
 @router.post("/accounts", response_model=AccountResponse)
 def create_account(data: AccountCreate, db: Session = Depends(get_db)):
     """创建账户"""
