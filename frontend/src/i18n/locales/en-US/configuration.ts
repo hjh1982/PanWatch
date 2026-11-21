@@ -593,6 +593,7 @@ export const configuration = {
       coalMonthly: 'Coal output & profit',
       coalPowerProfit: 'Coal & power profit',
       globalCoal: 'Global coal prices',
+      coalPci: 'PCI coal prices',
       autoSales: 'China passenger car sales',
       usM2Gold: 'U.S. M2 vs gold',
       dividendYield: 'A-share dividend yield',
@@ -935,6 +936,37 @@ export const configuration = {
       noSourceData: 'unavailable',
       caveat:
         'Scope: ICE Newcastle and Rotterdam thermal coal are quoted in USD/t, while China coking coal is the DCE continuous contract in CNY/t, so two axes are used. The three sources follow different trading calendars and missing days are not filled. The Newcastle continuous contract has a short history on Eastmoney, so earlier dates in the window are blank.',
+    },
+    coalPci: {
+      title: 'PCI coal prices',
+      badge: 'Steelhome · Daily',
+      subtitle: 'Steelhome PCI coal spot prices for Jincheng and Changzhi, in CNY/t',
+      loading: 'Loading PCI coal spot prices…',
+      noData: 'The data source returned no PCI coal prices. Refresh and try again.',
+      updatedCount: ' ({{count}} trading days)',
+      units: {
+        price: 'CNY/t',
+      },
+      metrics: {
+        jincheng: 'Jincheng PCI coal',
+        changzhi: 'Changzhi PCI coal',
+      },
+      charts: {
+        title: 'PCI coal price trend',
+        daily: 'Daily',
+        hint: 'Jincheng and Changzhi PCI spot prices share one axis',
+        empty: 'No PCI coal price data',
+        yUnit: 'Price (CNY/t)',
+      },
+      sourcesTitle: 'Sources',
+      since: 'from {{date}}',
+      latest: 'latest {{date}}',
+      noSourceData: 'unavailable',
+      yoyLabel: 'YoY',
+      yoyNote:
+        'YoY basis: Jincheng uses Mysteel’s prior-year price from the daily Shanxi Lanhua PCI clean-coal index (ID01360504); Changzhi uses the YoY change stated in Mysteel’s daily Lu’an Gucheng PCI report. Brand and spec differ slightly from the Steelhome spot quote; use as a trend reference only.',
+      caveat:
+        'Scope: data comes from the public Steelhome coal-market PCI spot quotes (embedded daily series), updated daily in CNY/t. The public page only covers roughly the latest six months; earlier history requires a Steelhome membership. Refresh re-fetches the page and falls back to cached data when it is unavailable.',
     },
     autoSales: {
       title: 'China passenger car production & sales',

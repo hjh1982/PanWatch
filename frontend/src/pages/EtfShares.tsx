@@ -86,6 +86,10 @@ interface MarginMetric {
   prior?: number | null
   delta: number | null
   delta_pct: number | null
+  year_ago?: number | null
+  yoy?: number | null
+  yoy_pct?: number | null
+  yoy_date?: string | null
   percentile?: number | null
 }
 
@@ -330,6 +334,14 @@ const GLOBAL_COAL_METRIC_KEYS = {
   rotterdam: 'etfShares.globalCoal.metrics.rotterdam',
   coking_coal: 'etfShares.globalCoal.metrics.coking_coal',
 } as const
+const COAL_PCI_METRIC_COLORS: Record<string, string> = {
+  jincheng: '#b91c1c',
+  changzhi: '#2563eb',
+}
+const COAL_PCI_METRIC_KEYS = {
+  jincheng: 'etfShares.coalPci.metrics.jincheng',
+  changzhi: 'etfShares.coalPci.metrics.changzhi',
+} as const
 const AUTO_SALES_METRIC_COLORS: Record<string, string> = {
   production: '#0ea5e9',
   wholesale: '#f97316',
@@ -410,6 +422,7 @@ const GROUP_LABEL_KEYS = {
   coalMonthly: 'etfShares.groups.coalMonthly',
   coalPowerProfit: 'etfShares.groups.coalPowerProfit',
   globalCoal: 'etfShares.groups.globalCoal',
+  coalPci: 'etfShares.groups.coalPci',
   autoSales: 'etfShares.groups.autoSales',
   usM2Gold: 'etfShares.groups.usM2Gold',
   dividendYield: 'etfShares.groups.dividendYield',
@@ -1237,6 +1250,7 @@ function MetricCard({
   color,
   digits = 2,
   deltaLabel,
+  yoyLabel,
 }: {
   metric: MarginMetric
   label: string
@@ -1244,6 +1258,7 @@ function MetricCard({
   color: string
   digits?: number
   deltaLabel?: string
+  yoyLabel?: string
 }) {
   return (
     <div className="relative overflow-hidden rounded-xl border border-border/60 bg-card/60 p-3">
@@ -1268,6 +1283,12 @@ function MetricCard({
         {formatDelta(metric.delta, digits)}
         <span className="ml-1">({formatPercent(metric.delta_pct)})</span>
       </div>
+      {yoyLabel && typeof metric.yoy_pct === 'number' && (
+        <div className={`mt-1 font-mono text-[11px] ${marketSignTextClass(metric.yoy_pct)}`}>
+          <span className="mr-1 font-sans text-muted-foreground">{yoyLabel}</span>
+          {formatPercent(metric.yoy_pct)}
+        </div>
+      )}
     </div>
   )
 }
@@ -3246,6 +3267,118 @@ function ThreeGorgesDashboard({ data }: { data: MetricsPayload }) {
       <p className="px-1 text-[11px] text-muted-foreground/80">
         {t('etfShares.threeGorges.caveat')}
       </p>
+    </div>
+  )
+}
+
+function CoalPciDashboard({ data }: { data: MetricsPayload }) {
+  const { t } = useTranslation('configuration')
+  const cnyUnit = t('etfShares.coalPci.units.price')
+  const metricLabel = (metric: MarginMetric) => {
+    const key =
+      COAL_PCI_METRIC_KEYS[metric.id as keyof typeof COAL_PCI_METRIC_KEYS]
+    return key ? t(key) : metric.label ?? metric.id
+  }
+  const chartSeries: ChartSeries[] = data.metrics.map((metric) => ({
+    code: metric.id,
+    name: metricLabel(metric),
+    color: COAL_PCI_METRIC_COLORS[metric.id] ?? '#64748b',
+    values: data.series[metric.id] ?? [],
+  }))
+  const legend = chartSeries.map((item) => ({
+    code: item.code,
+    name: item.name,
+    color: item.color,
+  }))
+  const sources = data.sources ?? []
+  const hasYoy = data.metrics.some((metric) => typeof metric.yoy_pct === 'number')
+
+  return (
+    <div className="space-y-4">
+      <section className="grid grid-cols-2 gap-2.5">
+        {data.metrics.map((metric) => (
+          <MetricCard
+            key={metric.id}
+            metric={metric}
+            label={metricLabel(metric)}
+            unit={cnyUnit}
+            color={COAL_PCI_METRIC_COLORS[metric.id] ?? '#64748b'}
+            digits={2}
+            yoyLabel={t('etfShares.coalPci.yoyLabel')}
+          />
+        ))}
+      </section>
+
+      <section className="card overflow-hidden">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border/60 px-4 py-2.5">
+          <span
+            className="h-4 w-1 rounded"
+            style={{ backgroundColor: COAL_PCI_METRIC_COLORS.jincheng }}
+          />
+          <h2 className="text-[13px] font-semibold">
+            {t('etfShares.coalPci.charts.title')}
+          </h2>
+          <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+            {t('etfShares.coalPci.charts.daily')}
+          </span>
+          {data.as_of && (
+            <span className="ml-auto font-mono text-[11px] text-muted-foreground">
+              {data.as_of}
+            </span>
+          )}
+        </div>
+        <div className="px-2 pb-2 pt-3 md:px-4">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2 px-1">
+            <p className="text-[11px] text-muted-foreground/80">
+              {t('etfShares.coalPci.charts.hint')}
+            </p>
+            <ChartLegend items={legend} />
+          </div>
+          <ShareChart
+            dates={data.dates}
+            series={chartSeries}
+            emptyText={t('etfShares.coalPci.charts.empty')}
+            unitLabel={t('etfShares.coalPci.charts.yUnit')}
+            ariaLabel={t('etfShares.coalPci.charts.title')}
+            valueUnit={cnyUnit}
+            valueDigits={2}
+          />
+        </div>
+        <div className="space-y-2 border-t border-border/60 px-4 py-3">
+          <div className="text-[11px] font-medium text-muted-foreground">
+            {t('etfShares.coalPci.sourcesTitle')}
+          </div>
+          <ul className="space-y-1 text-[11px] text-muted-foreground/80">
+            {sources.map((source) => (
+              <li key={source.id} className="flex flex-wrap gap-x-1.5">
+                <span>{source.name}</span>
+                <span>· {source.cadence}</span>
+                {source.start && (
+                  <span>
+                    · {t('etfShares.coalPci.since', { date: source.start })}
+                  </span>
+                )}
+                {source.latest && (
+                  <span>
+                    · {t('etfShares.coalPci.latest', { date: source.latest })}
+                  </span>
+                )}
+                {!source.latest && (
+                  <span>· {t('etfShares.coalPci.noSourceData')}</span>
+                )}
+              </li>
+            ))}
+          </ul>
+          <p className="text-[11px] text-muted-foreground/80">
+            {t('etfShares.coalPci.caveat')}
+          </p>
+          {hasYoy && (
+            <p className="text-[11px] text-muted-foreground/80">
+              {t('etfShares.coalPci.yoyNote')}
+            </p>
+          )}
+        </div>
+      </section>
     </div>
   )
 }
@@ -6899,6 +7032,7 @@ function EtfSharesPage() {
   const isInventoryGroup = activeGroup?.id === 'aluminumInventory'
   const isThreeGorgesGroup = activeGroup?.id === 'threeGorges'
   const isGlobalCoalGroup = activeGroup?.id === 'globalCoal'
+  const isCoalPciGroup = activeGroup?.id === 'coalPci'
   const isAutoSalesGroup = activeGroup?.id === 'autoSales'
   const isUsM2GoldGroup = activeGroup?.id === 'usM2Gold'
   const isGoldReservesGroup = activeGroup?.id === 'goldReserves'
@@ -6926,6 +7060,8 @@ function EtfSharesPage() {
         ? t('etfShares.coalPowerProfit.title')
         : isGlobalCoalGroup
           ? t('etfShares.globalCoal.title')
+          : isCoalPciGroup
+            ? t('etfShares.coalPci.title')
           : isAutoSalesGroup
             ? t('etfShares.autoSales.title')
             : isUsM2GoldGroup
@@ -6969,6 +7105,8 @@ function EtfSharesPage() {
         ? t('etfShares.coalPowerProfit.badge')
         : isGlobalCoalGroup
           ? t('etfShares.globalCoal.badge')
+          : isCoalPciGroup
+            ? t('etfShares.coalPci.badge')
           : isAutoSalesGroup
             ? t('etfShares.autoSales.badge')
             : isUsM2GoldGroup
@@ -7016,6 +7154,8 @@ function EtfSharesPage() {
         ? t('etfShares.coalPowerProfit.subtitle')
         : isGlobalCoalGroup
           ? t('etfShares.globalCoal.subtitle')
+          : isCoalPciGroup
+            ? t('etfShares.coalPci.subtitle')
           : isAutoSalesGroup
             ? t('etfShares.autoSales.subtitle')
             : isUsM2GoldGroup
@@ -7053,6 +7193,8 @@ function EtfSharesPage() {
         ? t('etfShares.coalPowerProfit.loading')
         : isGlobalCoalGroup
           ? t('etfShares.globalCoal.loading')
+          : isCoalPciGroup
+            ? t('etfShares.coalPci.loading')
           : isAutoSalesGroup
             ? t('etfShares.autoSales.loading')
             : isUsM2GoldGroup
@@ -7086,6 +7228,8 @@ function EtfSharesPage() {
         ? t('etfShares.coalPowerProfit.noData')
         : isGlobalCoalGroup
           ? t('etfShares.globalCoal.noData')
+          : isCoalPciGroup
+            ? t('etfShares.coalPci.noData')
           : isAutoSalesGroup
             ? t('etfShares.autoSales.noData')
             : isUsM2GoldGroup
@@ -7213,6 +7357,10 @@ function EtfSharesPage() {
               ? t('etfShares.globalCoal.updatedCount', {
                   count: curve.coverage.trading_days,
                 })
+              : isCoalPciGroup
+                ? t('etfShares.coalPci.updatedCount', {
+                    count: curve.coverage.trading_days,
+                  })
               : isAutoSalesGroup
                 ? t('etfShares.autoSales.updatedCount', {
                     count: curve.coverage.trading_days,
@@ -7401,6 +7549,8 @@ function EtfSharesPage() {
             <ThreeGorgesDashboard data={metricsCurve} />
           ) : isGlobalCoalGroup && metricsCurve ? (
             <GlobalCoalDashboard data={metricsCurve} />
+          ) : isCoalPciGroup && metricsCurve ? (
+            <CoalPciDashboard data={metricsCurve} />
           ) : isAutoSalesGroup && metricsCurve ? (
             <AutoSalesDashboard data={metricsCurve} />
           ) : isUsM2GoldGroup && metricsCurve ? (

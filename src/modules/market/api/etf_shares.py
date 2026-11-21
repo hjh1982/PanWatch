@@ -13,6 +13,7 @@ from src.modules.market import (
     auto_sales_service,
     coal_ltc_service,
     coal_monthly_service,
+    coal_pci_service,
     coal_price_service,
     dividend_yield_service,
     etf_share_service,
@@ -77,6 +78,8 @@ def _load_curve(
         return global_coal_service.get_curve_payload(
             group, days, force=force
         )
+    if group == coal_pci_service.COAL_PCI_GROUP_ID:
+        return coal_pci_service.get_curve_payload(group, days, force=force)
     if group == auto_sales_service.AUTO_SALES_GROUP_ID:
         return auto_sales_service.get_curve_payload(
             group, days, force=force
